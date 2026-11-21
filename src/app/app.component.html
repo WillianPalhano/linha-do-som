@@ -1,0 +1,198 @@
+@if (game(); as g) {
+  <main class="wrap">
+    @if (current(); as p) {
+      <div class="turn">
+        <div><span class="small">Vez de</span><br><b>{{ p.name }}</b></div>
+        <div class="chips">
+          <span class="chip">🎟 {{ p.tokens }} fichas</span>
+          <span class="chip">{{ p.tl.length }}/{{ goal() }} cartas</span>
+          <span class="chip">{{ g.deck.length }} no baralho</span>
+        </div>
+      </div>
+
+      <section class="stage">
+        <div class="player">
+          @if (embedUrl(); as url) {
+            <iframe [src]="url" width="100%" height="80" frameborder="0" title="Player do Spotify"
+              allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"></iframe>
+          }
+          @if (g.phase === 'guess') {
+            <div class="mask" [style.width]="'calc(100% - ' + maskOpen() + 'px)'">
+              <span class="disc spin"></span>
+              <span>Música misteriosa — dê o play →</span>
+            </div>
+          }
+        </div>
+
+        @if (g.phase === 'guess') {
+          <div class="row center">
+            <button class="ghost" (click)="skip()" [disabled]="p.tokens < 1">Pular (1 ficha)</button>
+          </div>
+          <details class="adjust">
+            <summary>O botão de play ficou escondido?</summary>
+            <label>Área livre à direita: {{ maskOpen() }}px
+              <input type="range" min="40" max="200" [value]="maskOpen()" (input)="setMask(val($event))">
+            </label>
+          </details>
+        } @else if (g.card) {
+          <div class="reveal">
+            <div class="verdict" [class.ok]="g.ok" [class.bad]="!g.ok">
+              {{ g.ok ? 'Acertou! O cartão é seu.' : 'Errou! O cartão vai para o descarte.' }}
+            </div>
+            <div class="yr">{{ g.card.year }}</div>
+            <div class="t">{{ g.card.title }}</div>
+            <div class="a">{{ g.card.artist }}</div>
+          </div>
+        }
+      </section>
+
+      <h2>Linha do tempo de {{ p.name }}</h2>
+      @if (g.phase === 'guess') { <p class="small">Toque no espaço onde a música entra.</p> }
+      <div class="tl">
+        @for (s of p.tl; track s.id; let i = $index) {
+          @if (g.phase === 'guess') {
+            <button class="slot" [class.sel]="g.sel === i" (click)="choose(i)">
+              {{ g.sel === i ? '🎵 Aqui' : slotLabel(p.tl, i) }}
+            </button>
+          }
+          <div class="card" [class.new]="s.id === g.placedId" [style.background]="color(s.year)">
+            <div class="y">{{ s.year }}</div>
+            <div><div class="t">{{ s.title }}</div><div class="a">{{ s.artist }}</div></div>
+          </div>
+        }
+        @if (g.phase === 'guess') {
+          <button class="slot" [class.sel]="g.sel === p.tl.length" (click)="choose(p.tl.length)">
+            {{ g.sel === p.tl.length ? '🎵 Aqui' : slotLabel(p.tl, p.tl.length) }}
+          </button>
+        }
+      </div>
+
+      <div class="row actions">
+        @if (g.phase === 'guess') {
+          <button (click)="confirm()" [disabled]="g.sel === null">Confirmar posição</button>
+        } @else {
+          <button class="ghost" (click)="bonus()" [disabled]="g.bonus">Acertou artista e música? +1 ficha</button>
+          <button (click)="next()">Próximo jogador →</button>
+        }
+      </div>
+
+      <h2>Placar</h2>
+      <div class="board">
+        @for (q of g.players; track $index; let i = $index) {
+          <div class="r" [class.me]="i === g.cur">
+            <span>{{ q.name }}</span><span>{{ q.tl.length }}/{{ goal() }} · 🎟 {{ q.tokens }}</span>
+          </div>
+        }
+      </div>
+      <div class="row" style="margin-top:18px"><button class="ghost" (click)="quit()">Encerrar partida</button></div>
+    }
+
+    @if (g.winner) {
+      <div class="overlay">
+        <div class="modal">
+          <div class="small">Fim de jogo</div>
+          <h1>{{ g.winner }}</h1>
+          <p>completou a linha do tempo!</p>
+          <div class="row center"><button (click)="quit()">Voltar ao início</button></div>
+        </div>
+      </div>
+    }
+  </main>
+} @else {
+  <main class="wrap">
+    <h1>Linha do <span>Som</span></h1>
+    <p class="sub">Ouça a música, adivinhe a época e encaixe o cartão na sua linha do tempo. Quem completar a linha primeiro vence.</p>
+
+    <!-- Spotify -->
+    <section class="panel">
+      <div class="row between">
+        <h2>1. Playlist do Spotify</h2>
+        <button class="link" (click)="showSettings.set(!showSettings())">{{ showSettings() ? 'Fechar ajustes' : 'Ajustes' }}</button>
+      </div>
+
+      @if (showSettings()) {
+        <div class="settings">
+          <label for="cid">Client ID do seu app no Spotify</label>
+          <input id="cid" [value]="clientId()" (change)="saveClientId(val($event))" placeholder="ex.: 3f9a…" autocomplete="off">
+          <p class="hint">No painel developer.spotify.com, cadastre este endereço como Redirect URI:</p>
+          <div class="row">
+            <code class="uri">{{ redirectUri }}</code>
+            <button class="ghost sm" (click)="copyRedirect()">{{ copied() ? 'Copiado!' : 'Copiar' }}</button>
+          </div>
+          @if (loggedIn()) { <button class="link" (click)="logout()">Sair do Spotify</button> }
+        </div>
+      }
+
+      <label for="pl">Link da playlist</label>
+      <div class="row">
+        <input id="pl" class="grow" [value]="playlistInput()" (input)="playlistInput.set(val($event))"
+          placeholder="https://open.spotify.com/playlist/…" autocomplete="off">
+        <button (click)="load()" [disabled]="!!busy()">{{ loggedIn() ? 'Carregar' : 'Entrar e carregar' }}</button>
+      </div>
+      <p class="hint">A playlist precisa ser sua (ou colaborativa). Se for de outra pessoa, duplique para sua conta antes.</p>
+
+      @if (busy()) { <p class="status">{{ busy() }}</p> }
+
+      @if (songs().length) {
+        <div class="loaded">
+          <b>{{ playlistName() }}</b> — {{ activeSongs().length }} músicas no baralho
+          @if (checking()) {
+            <p class="status">{{ checkProgress() }} <button class="link" (click)="stopCheck()">parar</button></p>
+          } @else if (uncheckedCount()) {
+            <p class="hint">{{ uncheckedCount() }} músicas sem conferência de ano.
+              <button class="link" (click)="checkYears()">Conferir agora</button></p>
+          } @else if (diffCount()) {
+            <p class="hint">{{ diffCount() }} anos corrigidos (o Spotify mostrava o ano de remaster ou coletânea).</p>
+          }
+          <button class="link" (click)="showList.set(!showList())">{{ showList() ? 'Esconder lista' : 'Revisar músicas e anos' }}</button>
+        </div>
+
+        @if (showList()) {
+          <p class="hint">⚠ Mostra os nomes: quem vai jogar não deve olhar.</p>
+          <div class="songs">
+            @for (s of songs(); track s.id) {
+              <div class="song" [class.off]="s.off">
+                <input type="number" class="year" [value]="s.year" (change)="setYear(s, val($event))" aria-label="Ano">
+                <div class="meta">
+                  <div class="t">{{ s.title }}</div>
+                  <div class="a">{{ s.artist }}
+                    @if (s.mbYear && s.mbYear !== s.spotifyYear) { <span class="tag">Spotify: {{ s.spotifyYear }}</span> }
+                  </div>
+                </div>
+                <button class="ghost sm" (click)="toggleSong(s)">{{ s.off ? 'Incluir' : 'Tirar' }}</button>
+              </div>
+            }
+          </div>
+        }
+      }
+    </section>
+
+    <!-- Jogadores -->
+    <section class="panel">
+      <h2>2. Jogadores</h2>
+      <div class="players">
+        @for (n of names(); track $index; let i = $index) {
+          <div class="row">
+            <input class="grow" [value]="n" (input)="setName(i, val($event))" [attr.aria-label]="'Jogador ' + (i + 1)">
+            @if (names().length > 1) { <button class="x" (click)="removePlayer(i)" aria-label="Remover">✕</button> }
+          </div>
+        }
+      </div>
+      <div class="row" style="margin-top:8px"><button class="ghost" (click)="addPlayer()">+ Jogador</button></div>
+
+      <div class="row nums">
+        <label>Cartas para vencer
+          <input type="number" min="3" max="30" [value]="goal()" (change)="goal.set(+val($event) || 10)">
+        </label>
+        <label>Fichas iniciais
+          <input type="number" min="0" max="10" [value]="startTokens()" (change)="startTokens.set(+val($event) || 0)">
+        </label>
+      </div>
+    </section>
+
+    @if (error()) { <p class="err">{{ error() }}</p> }
+    <div class="row"><button class="big" (click)="start()" [disabled]="!activeSongs().length || checking()">Começar partida</button></div>
+    @if (checking()) { <p class="hint">Espere a conferência dos anos terminar (ou pare) para começar.</p> }
+    <p class="small">Dica: entre no Spotify neste mesmo navegador (open.spotify.com) para ouvir as músicas inteiras. Sem login, o player toca só 30 segundos.</p>
+  </main>
+}
