@@ -29,7 +29,12 @@ interface Game {
 }
 
 const COLORS = ['#ff4f9a', '#2fd6c3', '#ffd23f', '#ff9f43', '#a78bfa'];
-const LIB = 'lds.library';
+const LIB = 'lds.library';          // formato antigo (uma playlist só), migrado na primeira abertura
+const PLAYLISTS = 'lds.playlists';
+const CURRENT = 'lds.current';
+
+/** Playlist já analisada, guardada no navegador com os anos conferidos e as edições. */
+interface SavedPlaylist { id: string; name: string; input: string; songs: Song[]; savedAt: number }
 
 @Component({
   selector: 'app-root',
@@ -59,6 +64,9 @@ export class AppComponent {
 
   playlistInput = signal('');
   playlistName = signal('');
+  playlists = signal<SavedPlaylist[]>([]);
+  currentId = signal('');
+  confirmDelete = signal('');
   songs = signal<Song[]>([]);
   busy = signal('');
   error = signal('');
@@ -88,8 +96,17 @@ export class AppComponent {
   remasterCount = computed(() => this.songs().filter((s) => s.remaster).length);
 
   constructor() {
-    const lib = this.readJson<{ name: string; input: string; songs: Song[] }>(LIB);
-    if (lib) { this.playlistName.set(lib.name); this.playlistInput.set(lib.input); this.songs.set(lib.songs); }
+    let list = this.readJson<SavedPlaylist[]>(PLAYLISTS) ?? [];
+    const old = this.readJson<{ name: string; input: string; songs: Song[] }>(LIB);
+    if (old?.songs?.length) {
+      const id = SpotifyService.parsePlaylistId(old.input) ?? 'antiga';
+      if (!list.some((p) => p.id === id)) list = [{ id, name: old.name, input: old.input, songs: old.songs, savedAt: Date.now() }, ...list];
+      store.del(LIB);
+      store.set(PLAYLISTS, JSON.stringify(list));
+    }
+    this.playlists.set(list);
+    const cur = list.find((p) => p.id === store.get(CURRENT)) ?? list[0];
+    if (cur) this.select(cur.id);
     void this.finishLogin();
   }
 
@@ -97,9 +114,51 @@ export class AppComponent {
   private readJson<T>(k: string): T | null {
     try { return JSON.parse(store.get(k) ?? 'null') as T | null; } catch { return null; }
   }
+  /** Grava a playlist atual (songs/nome) dentro da biblioteca. */
   private saveLib(): void {
-    store.set(LIB, JSON.stringify({ name: this.playlistName(), input: this.playlistInput(), songs: this.songs() }));
+    const id = this.currentId();
+    if (!id) return;
+    const entry: SavedPlaylist = {
+      id, name: this.playlistName(), songs: this.songs(),
+      input: this.playlists().find((p) => p.id === id)?.input ?? this.playlistInput(),
+      savedAt: this.playlists().find((p) => p.id === id)?.savedAt ?? Date.now(),
+    };
+    const list = this.playlists().some((p) => p.id === id)
+      ? this.playlists().map((p) => (p.id === id ? entry : p))
+      : [entry, ...this.playlists()];
+    this.playlists.set(list);
+    store.set(PLAYLISTS, JSON.stringify(list));
+    store.set(CURRENT, id);
   }
+
+  select(id: string): void {
+    const p = this.playlists().find((x) => x.id === id);
+    if (!p || this.checking()) return;
+    this.currentId.set(p.id);
+    this.playlistName.set(p.name);
+    this.songs.set(p.songs);
+    this.showList.set(false);
+    this.confirmDelete.set('');
+    store.set(CURRENT, p.id);
+  }
+
+  remove(id: string): void {
+    if (this.checking() && id === this.currentId()) return;
+    if (this.confirmDelete() !== id) { this.confirmDelete.set(id); return; }
+    const list = this.playlists().filter((p) => p.id !== id);
+    this.playlists.set(list);
+    store.set(PLAYLISTS, JSON.stringify(list));
+    this.confirmDelete.set('');
+    if (id === this.currentId()) {
+      this.currentId.set(''); this.songs.set([]); this.playlistName.set(''); store.del(CURRENT);
+      if (list[0]) this.select(list[0].id);
+    }
+  }
+
+  /** Recarrega do Spotify uma playlist salva (pega músicas novas, mantém anos já conferidos/editados). */
+  refresh(p: SavedPlaylist): void { this.playlistInput.set(p.input); void this.load(); }
+
+  savedDate(t: number): string { return new Date(t).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' }); }
   private fail(e: unknown): void {
     if (e instanceof AuthError) this.loggedIn.set(false);
     this.error.set(e instanceof Error ? e.message : String(e));
@@ -193,9 +252,19 @@ export class AppComponent {
       this.busy.set('Carregando playlist…');
       const r = await this.sp.loadPlaylist(id, (n) => this.busy.set(`Carregando… ${n} músicas`));
       if (!r.songs.length) throw new Error('A playlist não tem faixas de música.');
+      // Se a playlist já estava salva, preserva o que foi conferido/editado em cada faixa.
+      const prev = new Map((this.playlists().find((p) => p.id === id)?.songs ?? []).map((s) => [s.id, s]));
+      const songs = r.songs.map((s) => {
+        const o = prev.get(s.id);
+        return o ? { ...s, year: o.year, mbYear: o.mbYear, checked: o.checked, off: o.off } : s;
+      });
+      this.currentId.set(id);
       this.playlistName.set(r.name);
-      this.songs.set(r.songs);
+      this.songs.set(songs);
+      const others = this.playlists().filter((p) => p.id !== id);
+      this.playlists.set([{ id, name: r.name, input: this.playlistInput(), songs, savedAt: Date.now() }, ...others]);
       this.saveLib();
+      this.playlistInput.set('');
       this.busy.set('');
       if (this.uncheckedCount()) void this.checkYears();
     } catch (e) { this.fail(e); }

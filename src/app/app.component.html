@@ -238,7 +238,24 @@
         </div>
       }
 
-      <label for="pl">Link da playlist</label>
+      @if (playlists().length) {
+        <div class="library">
+          @for (pl of playlists(); track pl.id) {
+            <div class="pl" [class.on]="pl.id === currentId()">
+              <button class="pl-main" (click)="select(pl.id)" [disabled]="checking()">
+                <b>{{ pl.name }}</b>
+                <span>{{ pl.songs.length }} músicas · {{ savedDate(pl.savedAt) }}{{ pl.id === currentId() ? ' · selecionada' : '' }}</span>
+              </button>
+              <button class="ghost sm" (click)="refresh(pl)" [disabled]="checking() || !!busy()" aria-label="Recarregar do Spotify">↻</button>
+              <button class="ghost sm del" [class.armed]="confirmDelete() === pl.id" (click)="remove(pl.id)" [disabled]="checking() && pl.id === currentId()">
+                {{ confirmDelete() === pl.id ? 'Apagar?' : '✕' }}
+              </button>
+            </div>
+          }
+        </div>
+      }
+
+      <label for="pl">{{ playlists().length ? 'Adicionar outra playlist' : 'Link da playlist' }}</label>
       <div class="row">
         <input id="pl" class="grow" [value]="playlistInput()" (input)="playlistInput.set(val($event))"
           placeholder="https://open.spotify.com/playlist/…" autocomplete="off">

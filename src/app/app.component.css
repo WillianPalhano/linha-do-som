@@ -114,3 +114,10 @@ button.chip{min-height:0;border:0;font:500 13px Rubik,sans-serif;cursor:pointer}
 .pick.on{background:var(--ok);color:#1c0a2b;border-color:var(--ok)}
 .pick.miss.on{background:var(--bad);border-color:var(--bad)}
 .btn-link{display:inline-flex;align-items:center;min-height:40px;padding:6px 16px;border-radius:999px;background:var(--yel);color:#1c0a2b;font-weight:700;text-decoration:none}
+.library{display:grid;gap:8px;margin:6px 0 4px}
+.pl{display:flex;gap:8px;align-items:center;background:var(--bg);border-radius:14px;padding:6px;border:2px solid transparent}
+.pl.on{border-color:var(--yel)}
+.pl-main{flex:1;display:grid;gap:0;text-align:left;background:none;color:var(--ink);padding:6px 8px;border-radius:10px;min-height:44px}
+.pl-main span{font-size:12px;color:var(--mute);font-weight:400}
+.pl .sm{min-width:44px;padding:6px 10px}
+.pl .del.armed{background:var(--bad);border-color:var(--bad);color:#1c0a2b}
