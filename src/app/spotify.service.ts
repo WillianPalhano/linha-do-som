@@ -12,6 +12,8 @@ export interface Song {
   off?: boolean;       // fora do baralho
 }
 
+export interface Device { id: string; name: string; type: string; is_active: boolean }
+
 export class AuthError extends Error {
   constructor() { super('Você precisa entrar com o Spotify de novo.'); }
 }
@@ -30,8 +32,11 @@ export const store = {
 const AUTH_URL = 'https://accounts.spotify.com/authorize';
 const TOKEN_URL = 'https://accounts.spotify.com/api/token';
 const API = 'https://api.spotify.com/v1';
-const SCOPES = 'playlist-read-private playlist-read-collaborative';
+const PLAYBACK_SCOPE = 'user-modify-playback-state';
+const SCOPES = `playlist-read-private playlist-read-collaborative user-read-playback-state ${PLAYBACK_SCOPE}`;
 const K = { client: 'lds.clientId', verifier: 'lds.verifier', token: 'lds.token', pending: 'lds.pending' };
+
+interface StoredToken { access: string; exp: number; refresh?: string; scope?: string }
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
@@ -73,12 +78,23 @@ export class SpotifyService {
   get clientId(): string { return store.get(K.client) ?? ''; }
   set clientId(v: string) { store.set(K.client, v.trim()); }
 
-  get token(): string | null {
-    try {
-      const t = JSON.parse(store.get(K.token) ?? 'null') as { access: string; exp: number } | null;
-      return t && Date.now() < t.exp ? t.access : null;
-    } catch { return null; }
+  private read(): StoredToken | null {
+    try { return JSON.parse(store.get(K.token) ?? 'null') as StoredToken | null; } catch { return null; }
   }
+  private save(j: { access_token: string; expires_in: number; refresh_token?: string; scope?: string }): void {
+    const old = this.read();
+    store.set(K.token, JSON.stringify({
+      access: j.access_token,
+      exp: Date.now() + (j.expires_in - 60) * 1000,
+      refresh: j.refresh_token ?? old?.refresh,
+      scope: j.scope ?? old?.scope,
+    } satisfies StoredToken));
+  }
+
+  /** Tem sessão (token válido ou refresh token para renovar). */
+  get hasSession(): boolean { const t = this.read(); return !!t && (Date.now() < t.exp || !!t.refresh); }
+  /** O login atual inclui permissão para controlar o player? */
+  get canControlPlayback(): boolean { return (this.read()?.scope ?? '').includes(PLAYBACK_SCOPE); }
 
   logout(): void { store.del(K.token); }
 
@@ -98,22 +114,7 @@ export class SpotifyService {
     location.href = `${AUTH_URL}?${params}`;
   }
 
-  /** Trata a volta do login. Devolve o link de playlist que estava pendente, se houver. */
-  async handleRedirect(): Promise<string | null> {
-    const q = new URLSearchParams(location.search);
-    const code = q.get('code');
-    const err = q.get('error');
-    if (!code && !err) return null;
-    history.replaceState(null, '', location.pathname);
-    if (err) throw new Error(`Login não concluído (${err}).`);
-
-    const body = new URLSearchParams({
-      grant_type: 'authorization_code',
-      code: code!,
-      redirect_uri: this.redirectUri,
-      client_id: this.clientId,
-      code_verifier: store.get(K.verifier) ?? '',
-    });
+  private async tokenRequest(body: URLSearchParams): Promise<void> {
     const r = await fetch(TOKEN_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -123,36 +124,79 @@ export class SpotifyService {
       const detail = await r.text().catch(() => '');
       throw new Error(`Falha ao obter o token do Spotify (${r.status}). ${detail}`);
     }
-    const j = await r.json() as { access_token: string; expires_in: number };
-    store.set(K.token, JSON.stringify({ access: j.access_token, exp: Date.now() + (j.expires_in - 60) * 1000 }));
+    this.save(await r.json());
+  }
+
+  /** Trata a volta do login. Devolve o link de playlist que estava pendente, se houver (ou '' se não havia). */
+  async handleRedirect(): Promise<string | null> {
+    const q = new URLSearchParams(location.search);
+    const code = q.get('code');
+    const err = q.get('error');
+    if (!code && !err) return null;
+    history.replaceState(null, '', location.pathname);
+    if (err) throw new Error(`Login não concluído (${err}).`);
+
+    await this.tokenRequest(new URLSearchParams({
+      grant_type: 'authorization_code',
+      code: code!,
+      redirect_uri: this.redirectUri,
+      client_id: this.clientId,
+      code_verifier: store.get(K.verifier) ?? '',
+    }));
     store.del(K.verifier);
-    const pending = store.get(K.pending);
+    const pending = store.get(K.pending) ?? '';
     store.del(K.pending);
-    return pending || null;
+    return pending;
+  }
+
+  /** Token válido, renovando com o refresh token quando expira (partidas longas). */
+  private async accessToken(): Promise<string> {
+    const t = this.read();
+    if (t && Date.now() < t.exp) return t.access;
+    if (t?.refresh) {
+      try {
+        await this.tokenRequest(new URLSearchParams({
+          grant_type: 'refresh_token', refresh_token: t.refresh, client_id: this.clientId,
+        }));
+        return this.read()!.access;
+      } catch { this.logout(); }
+    }
+    throw new AuthError();
+  }
+
+  private async request(path: string, init: RequestInit = {}, attempt = 0): Promise<Response> {
+    const token = await this.accessToken();
+    const r = await fetch(path.startsWith('http') ? path : API + path, {
+      ...init,
+      headers: { Authorization: `Bearer ${token}`, ...(init.body ? { 'Content-Type': 'application/json' } : {}) },
+    });
+    if (r.status === 401) {
+      // token revogado/expirado fora de hora: tenta renovar uma vez
+      const t = this.read();
+      if (t && attempt === 0) { store.set(K.token, JSON.stringify({ ...t, exp: 0 })); return this.request(path, init, 1); }
+      this.logout();
+      throw new AuthError();
+    }
+    if (r.status === 429 && attempt < 3) {
+      const wait = Number(r.headers.get('Retry-After') ?? '2');
+      await sleep((wait || 2) * 1000);
+      return this.request(path, init, attempt + 1);
+    }
+    return r;
+  }
+
+  private async api<T>(path: string): Promise<T> {
+    const r = await this.request(path);
+    if (r.status === 403) throw new Error(NOT_OWNER);
+    if (r.status === 404) throw new Error('Playlist não encontrada. Confira o link.');
+    if (!r.ok) throw new Error(`O Spotify respondeu com erro ${r.status}.`);
+    return r.json() as Promise<T>;
   }
 
   static parsePlaylistId(input: string): string | null {
     const s = input.trim();
     const m = s.match(/playlist[\/:]([A-Za-z0-9]{22})/) ?? s.match(/^([A-Za-z0-9]{22})$/);
     return m ? m[1] : null;
-  }
-
-  private async api<T>(path: string, attempt = 0): Promise<T> {
-    const token = this.token;
-    if (!token) throw new AuthError();
-    const r = await fetch(path.startsWith('http') ? path : API + path, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (r.status === 401) { this.logout(); throw new AuthError(); }
-    if (r.status === 429 && attempt < 3) {
-      const wait = Number(r.headers.get('Retry-After') ?? '2');
-      await sleep((wait || 2) * 1000);
-      return this.api<T>(path, attempt + 1);
-    }
-    if (r.status === 403) throw new Error(NOT_OWNER);
-    if (r.status === 404) throw new Error('Playlist não encontrada. Confira o link.');
-    if (!r.ok) throw new Error(`O Spotify respondeu com erro ${r.status}.`);
-    return r.json() as Promise<T>;
   }
 
   async loadPlaylist(id: string, onProgress: (n: number) => void): Promise<{ name: string; songs: Song[] }> {
@@ -183,5 +227,36 @@ export class SpotifyService {
       next = page.next;
     }
     return { name: meta.name ?? 'Playlist', songs };
+  }
+
+  // ---------- Spotify Connect (controle do app do Spotify) ----------
+
+  private async player(method: 'GET' | 'PUT' | 'POST', path: string, body?: unknown): Promise<Response> {
+    const r = await this.request(path, { method, body: body === undefined ? undefined : JSON.stringify(body) });
+    if (r.ok) return r;
+    let reason = '';
+    try { reason = ((await r.json()) as { error?: { reason?: string } }).error?.reason ?? ''; } catch { /* sem corpo */ }
+    if (r.status === 404 || reason === 'NO_ACTIVE_DEVICE') {
+      throw new Error('O Spotify não encontrou o aparelho. Abra o app do Spotify, toque qualquer música por um segundo, volte aqui e tente de novo.');
+    }
+    if (reason === 'PREMIUM_REQUIRED') throw new Error('Controlar o player exige uma conta Spotify Premium.');
+    if (r.status === 403) throw new Error('O Spotify recusou o comando. Entre de novo para liberar o controle do player.');
+    throw new Error(`O Spotify respondeu com erro ${r.status} ao controlar o player.`);
+  }
+
+  async devices(): Promise<Device[]> {
+    const r = await this.player('GET', '/me/player/devices');
+    const j = (await r.json()) as { devices?: Device[] };
+    return (j.devices ?? []).filter((d) => !!d.id);
+  }
+
+  async playTrack(trackId: string, deviceId: string, positionMs = 0): Promise<void> {
+    const q = deviceId ? `?device_id=${encodeURIComponent(deviceId)}` : '';
+    await this.player('PUT', `/me/player/play${q}`, { uris: [`spotify:track:${trackId}`], position_ms: positionMs });
+  }
+
+  async pause(deviceId: string): Promise<void> {
+    const q = deviceId ? `?device_id=${encodeURIComponent(deviceId)}` : '';
+    try { await this.player('PUT', `/me/player/pause${q}`); } catch { /* já pausado: o Spotify responde 403 */ }
   }
 }

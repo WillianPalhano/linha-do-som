@@ -1,6 +1,6 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
-import { AuthError, Song, SpotifyService, store } from './spotify.service';
+import { AuthError, Device, Song, SpotifyService, store } from './spotify.service';
 import { MusicBrainzService } from './musicbrainz.service';
 
 interface Player { name: string; tl: Song[]; tokens: number }
@@ -34,7 +34,17 @@ export class AppComponent {
   readonly redirectUri = this.sp.redirectUri;
   clientId = signal(this.sp.clientId);
   showSettings = signal(!this.sp.clientId);
-  loggedIn = signal(!!this.sp.token);
+  loggedIn = signal(this.sp.hasSession);
+  canControl = signal(this.sp.canControlPlayback);
+
+  /** connect = toca a faixa inteira no app do Spotify; embed = player embutido (prévia no celular) */
+  audioMode = signal<'connect' | 'embed'>((store.get('lds.audio') as 'connect' | 'embed') || 'connect');
+  devices = signal<Device[]>([]);
+  deviceId = signal(store.get('lds.device') ?? '');
+  deviceName = signal(store.get('lds.deviceName') ?? '');
+  playMsg = signal('');
+  playing = signal(false);
+  embedNonce = signal(0);
 
   playlistInput = signal('');
   playlistName = signal('');
@@ -58,7 +68,7 @@ export class AppComponent {
   embedUrl = computed<SafeResourceUrl | null>(() => {
     const c = this.game()?.card;
     return c
-      ? this.san.bypassSecurityTrustResourceUrl(`https://open.spotify.com/embed/track/${c.id}?utm_source=generator&theme=0`)
+      ? this.san.bypassSecurityTrustResourceUrl(`https://open.spotify.com/embed/track/${c.id}?utm_source=generator&theme=0&n=${this.embedNonce()}`)
       : null;
   });
   diffCount = computed(() => this.songs().filter((s) => s.mbYear && s.mbYear !== s.spotifyYear).length);
@@ -89,7 +99,8 @@ export class AppComponent {
   private async finishLogin(): Promise<void> {
     try {
       const pending = await this.sp.handleRedirect();
-      this.loggedIn.set(!!this.sp.token);
+      this.loggedIn.set(this.sp.hasSession);
+      this.canControl.set(this.sp.canControlPlayback);
       if (pending) { this.playlistInput.set(pending); await this.load(); }
     } catch (e) { this.fail(e); }
   }
@@ -105,7 +116,50 @@ export class AppComponent {
     try { await this.sp.login(this.playlistInput()); } catch (e) { this.fail(e); }
   }
 
-  logout(): void { this.sp.logout(); this.loggedIn.set(false); }
+  logout(): void { this.sp.logout(); this.loggedIn.set(false); this.canControl.set(false); }
+
+  // ---------- som ----------
+  setAudioMode(m: 'connect' | 'embed'): void { this.audioMode.set(m); store.set('lds.audio', m); }
+
+  async findDevices(): Promise<void> {
+    this.playMsg.set('Procurando aparelhos…');
+    try {
+      const list = await this.sp.devices();
+      this.devices.set(list);
+      if (!list.length) {
+        this.playMsg.set('Nenhum aparelho encontrado. Abra o app do Spotify neste celular, toque qualquer música por um segundo e procure de novo.');
+        return;
+      }
+      const keep = list.find((d) => d.id === this.deviceId()) ?? list.find((d) => d.is_active) ?? (list.length === 1 ? list[0] : null);
+      if (keep) this.chooseDevice(keep);
+      this.playMsg.set('');
+    } catch (e) { this.playMsg.set(e instanceof Error ? e.message : String(e)); if (e instanceof AuthError) this.loggedIn.set(false); }
+  }
+
+  chooseDevice(d: Device): void {
+    this.deviceId.set(d.id); this.deviceName.set(d.name);
+    store.set('lds.device', d.id); store.set('lds.deviceName', d.name);
+  }
+
+  async playCurrent(): Promise<void> {
+    const c = this.game()?.card;
+    if (!c) return;
+    this.playMsg.set('');
+    try {
+      await this.sp.playTrack(c.id, this.deviceId());
+      this.playing.set(true);
+    } catch (e) {
+      this.playing.set(false);
+      this.playMsg.set(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async pausePlayback(): Promise<void> {
+    this.playing.set(false);
+    await this.sp.pause(this.deviceId());
+  }
+
+  reloadEmbed(): void { this.embedNonce.update((n) => n + 1); }
 
   copied = signal(false);
   async copyRedirect(): Promise<void> {
@@ -117,7 +171,7 @@ export class AppComponent {
     this.error.set('');
     const id = SpotifyService.parsePlaylistId(this.playlistInput());
     if (!id) { this.error.set('Não reconheci o link. Use o "Compartilhar → Copiar link da playlist" do Spotify.'); return; }
-    if (!this.sp.token) { await this.login(); return; }
+    if (!this.sp.hasSession) { await this.login(); return; }
     try {
       this.busy.set('Carregando playlist…');
       const r = await this.sp.loadPlaylist(id, (n) => this.busy.set(`Carregando… ${n} músicas`));
@@ -186,6 +240,8 @@ export class AppComponent {
     const pool = this.activeSongs();
     if (!players.length) { this.error.set('Adicione pelo menos um jogador.'); return; }
     if (pool.length < players.length + 3) { this.error.set(`Poucas músicas: precisa de pelo menos ${players.length + 3}.`); return; }
+    if (this.audioMode() === 'connect' && !this.canControl()) { this.error.set('Entre de novo com o Spotify para liberar o controle do player (passo 3).'); return; }
+    if (this.audioMode() === 'connect' && !this.deviceId()) { this.error.set('Escolha o aparelho onde a música vai tocar (passo 3).'); return; }
     const deck = this.shuffle(pool.map((s) => ({ ...s })));
     this.game.set({
       players: players.map((name) => ({ name, tl: [deck.pop()!], tokens: Math.max(0, this.startTokens()) })),
@@ -201,7 +257,9 @@ export class AppComponent {
     if (!g.deck.length) { this.finish(); return; }
     g.card = g.deck.pop()!;
     g.sel = null; g.phase = 'guess'; g.bonus = false; g.placedId = null;
+    this.playMsg.set('');
     this.touch();
+    if (this.audioMode() === 'connect') void this.playCurrent();
   }
 
   choose(i: number): void { const g = this.game(); if (g && g.phase === 'guess') { g.sel = i; this.touch(); } }
@@ -239,7 +297,10 @@ export class AppComponent {
     this.touch();
   }
 
-  quit(): void { this.game.set(null); }
+  quit(): void {
+    if (this.audioMode() === 'connect' && this.playing()) void this.pausePlayback();
+    this.game.set(null);
+  }
 
   slotLabel(tl: Song[], i: number): string {
     if (i === 0) return `Antes de ${tl[0].year}`;

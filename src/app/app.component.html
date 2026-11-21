@@ -11,29 +11,48 @@
       </div>
 
       <section class="stage">
-        <div class="player">
-          @if (embedUrl(); as url) {
-            <iframe [src]="url" width="100%" height="80" frameborder="0" title="Player do Spotify"
-              allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"></iframe>
-          }
-          @if (g.phase === 'guess') {
-            <div class="mask" [style.width]="'calc(100% - ' + maskOpen() + 'px)'">
-              <span class="disc spin"></span>
-              <span>Música misteriosa — dê o play →</span>
+        @if (audioMode() === 'connect') {
+          <div class="deck">
+            <span class="disc big" [class.spin]="playing()"></span>
+            <div class="controls">
+              <button class="play" (click)="playCurrent()" aria-label="Tocar do início">↺ Do início</button>
+              @if (playing()) {
+                <button class="ghost" (click)="pausePlayback()">⏸ Pausar</button>
+              } @else {
+                <button class="ghost" (click)="playCurrent()">▶ Tocar</button>
+              }
             </div>
-          }
-        </div>
+          </div>
+          <p class="small center-text">Tocando em {{ deviceName() || 'Spotify' }}. Não abra a central de notificações: ela mostra o nome da música.</p>
+          @if (playMsg()) { <p class="err center-text">{{ playMsg() }}</p> }
+        } @else {
+          <div class="player">
+            @if (embedUrl(); as url) {
+              <iframe [src]="url" width="100%" height="80" frameborder="0" title="Player do Spotify"
+                allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"></iframe>
+            }
+            @if (g.phase === 'guess') {
+              <div class="mask" [style.width]="'calc(100% - ' + maskOpen() + 'px)'">
+                <span class="disc spin"></span>
+                <span>Música misteriosa — dê o play →</span>
+              </div>
+            }
+          </div>
+          <div class="row center"><button class="ghost sm" (click)="reloadEmbed()">↺ Recarregar player</button></div>
+        }
 
         @if (g.phase === 'guess') {
           <div class="row center">
             <button class="ghost" (click)="skip()" [disabled]="p.tokens < 1">Pular (1 ficha)</button>
           </div>
-          <details class="adjust">
-            <summary>O botão de play ficou escondido?</summary>
-            <label>Área livre à direita: {{ maskOpen() }}px
-              <input type="range" min="40" max="200" [value]="maskOpen()" (input)="setMask(val($event))">
-            </label>
-          </details>
+          @if (audioMode() === 'embed') {
+            <details class="adjust">
+              <summary>O botão de play ficou escondido?</summary>
+              <label>Área livre à direita: {{ maskOpen() }}px
+                <input type="range" min="40" max="200" [value]="maskOpen()" (input)="setMask(val($event))">
+              </label>
+            </details>
+          }
         } @else if (g.card) {
           <div class="reveal">
             <div class="verdict" [class.ok]="g.ok" [class.bad]="!g.ok">
@@ -190,9 +209,47 @@
       </div>
     </section>
 
+    <!-- Som -->
+    <section class="panel">
+      <h2>3. Onde a música toca</h2>
+      <div class="modes">
+        <button class="mode" [class.on]="audioMode() === 'connect'" (click)="setAudioMode('connect')">
+          <b>App do Spotify</b><span>Música inteira, controlada por aqui. Precisa de Premium.</span>
+        </button>
+        <button class="mode" [class.on]="audioMode() === 'embed'" (click)="setAudioMode('embed')">
+          <b>Player embutido</b><span>Não precisa de Premium, mas no celular toca só uma prévia.</span>
+        </button>
+      </div>
+
+      @if (audioMode() === 'connect') {
+        @if (!loggedIn() || !canControl()) {
+          <p class="hint">Para controlar o Spotify, o app precisa de uma permissão nova. Entre de novo:</p>
+          <button (click)="login()">Entrar com o Spotify</button>
+        } @else {
+          <ol class="steps">
+            <li>Abra o app do Spotify neste celular e toque qualquer música por um segundo (pode pausar depois).</li>
+            <li>Volte aqui e toque em <b>Procurar aparelhos</b>.</li>
+          </ol>
+          <button class="ghost" (click)="findDevices()">Procurar aparelhos</button>
+          @if (devices().length) {
+            <div class="devices">
+              @for (d of devices(); track d.id) {
+                <button class="device" [class.on]="d.id === deviceId()" (click)="chooseDevice(d)">
+                  {{ d.name }} <span>{{ d.type }}{{ d.is_active ? ' · ativo' : '' }}</span>
+                </button>
+              }
+            </div>
+          } @else if (deviceName()) {
+            <p class="hint">Último aparelho usado: <b>{{ deviceName() }}</b></p>
+          }
+          @if (playMsg()) { <p class="hint">{{ playMsg() }}</p> }
+        }
+      }
+    </section>
+
     @if (error()) { <p class="err">{{ error() }}</p> }
     <div class="row"><button class="big" (click)="start()" [disabled]="!activeSongs().length || checking()">Começar partida</button></div>
     @if (checking()) { <p class="hint">Espere a conferência dos anos terminar (ou pare) para começar.</p> }
-    <p class="small">Dica: entre no Spotify neste mesmo navegador (open.spotify.com) para ouvir as músicas inteiras. Sem login, o player toca só 30 segundos.</p>
+    <p class="small">No modo App do Spotify, a música começa sozinha a cada rodada. Deixe o Spotify aberto em segundo plano.</p>
   </main>
 }

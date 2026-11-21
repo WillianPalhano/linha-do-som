@@ -36,8 +36,8 @@ Feito em Angular 20 (standalone, signals, sem zone.js). Não tem backend: o logi
 
 ## Limitações conhecidas
 - **Só playlists suas ou colaborativas.** Desde fevereiro de 2026 o Spotify não libera, para apps em modo de desenvolvimento, as faixas de playlists de outras pessoas. Para usar uma dessas, duplique a playlist para a sua conta antes.
-- **Música inteira ou trecho de 30 segundos.** O player embutido toca a faixa completa quando você está logado em open.spotify.com nesse mesmo navegador. Sem login, ou em navegadores que bloqueiam cookies de terceiros (o Safari do iPhone costuma bloquear), ele toca só 30 segundos.
-- **Máscara do player.** O nome e a capa ficam cobertos e só o botão de play aparece. Se o Spotify mudar o layout e o botão ficar escondido, ajuste em "O botão de play ficou escondido?".
+- **Onde a música toca.** No modo *App do Spotify* (o padrão), o jogo usa o Spotify Connect: manda a faixa tocar inteira no app do Spotify, que fica aberto em segundo plano. Exige Premium. No modo *Player embutido*, o player do Spotify fica dentro da página, mas no celular ele só toca prévias.
+- **Máscara do player (só no modo embutido).** O nome e a capa ficam cobertos e só o botão de play aparece. Se o Spotify mudar o layout e o botão ficar escondido, ajuste em "O botão de play ficou escondido?".
 - **Anos.** O Spotify mostra o ano do álbum, que pode ser de um remaster ou de uma coletânea. O app usa o menor ano entre o do Spotify e o do MusicBrainz. Músicas pouco conhecidas podem ficar com o ano errado, então vale revisar a lista.
 
 ## Rodar localmente
