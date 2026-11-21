@@ -65,26 +65,49 @@
         }
       </section>
 
-      <h2>Linha do tempo de {{ p.name }}</h2>
-      @if (g.phase === 'guess') { <p class="small">Toque no espaço onde a música entra.</p> }
-      <div class="tl">
-        @for (s of p.tl; track s.id; let i = $index) {
-          @if (g.phase === 'guess') {
-            <button class="slot" [class.sel]="g.sel === i" (click)="choose(i)">
-              {{ g.sel === i ? '🎵 Aqui' : slotLabel(p.tl, i) }}
-            </button>
+      @if (g.phase === 'guess') {
+        <div class="hand">
+          @if (g.sel === null) {
+            <div class="sq ghost" [class.lifted]="!!drag()" (pointerdown)="dragStart($event, false)">
+              <span class="q">?</span><span class="lbl">Arraste</span>
+            </div>
+            <p class="small">Arraste o cartão para a linha do tempo ou toque num <b>+</b>. Deslize a linha para os lados.</p>
+          } @else {
+            <p class="small">Cartão posicionado. Arraste para mudar ou confirme.</p>
           }
-          <div class="card" [class.new]="s.id === g.placedId" [style.background]="color(s.year)">
-            <div class="y">{{ s.year }}</div>
-            <div><div class="t">{{ s.title }}</div><div class="a">{{ s.artist }}</div></div>
-          </div>
-        }
-        @if (g.phase === 'guess') {
-          <button class="slot" [class.sel]="g.sel === p.tl.length" (click)="choose(p.tl.length)">
-            {{ g.sel === p.tl.length ? '🎵 Aqui' : slotLabel(p.tl, p.tl.length) }}
-          </button>
-        }
+        </div>
+      }
+
+      <div class="tl-head">
+        <h2>Linha do tempo de {{ p.name }}</h2>
+        <span class="small">{{ p.tl[0].year }} → {{ p.tl[p.tl.length - 1].year }}</span>
       </div>
+      <div class="strip" #strip [class.dragging]="!!drag()">
+        <div class="track">
+          @for (i of slots(p.tl); track i) {
+            @if (g.phase === 'guess') {
+              @if (g.sel === i && !(drag()?.fromStrip)) {
+                <div class="sq ghost placed" [attr.data-i]="i" (pointerdown)="dragStart($event, true)">
+                  <span class="q">?</span><span class="lbl">Aqui</span>
+                </div>
+              } @else {
+                <button class="gap" [attr.data-i]="i" [class.hot]="dragOver() === i" (click)="choose(i)"
+                  [attr.aria-label]="slotLabel(p.tl, i)"><span>+</span></button>
+              }
+            }
+            @if (i < p.tl.length) {
+              <div class="sq" [class.new]="p.tl[i].id === g.placedId" [style.background]="color(p.tl[i].year)">
+                <span class="y">{{ p.tl[i].year }}</span>
+                <span class="t">{{ p.tl[i].title }}</span>
+                <span class="a">{{ p.tl[i].artist }}</span>
+              </div>
+            }
+          }
+        </div>
+      </div>
+      @if (drag(); as d) {
+        <div class="sq ghost floating" [style.left.px]="d.x" [style.top.px]="d.y"><span class="q">?</span></div>
+      }
 
       <div class="row actions">
         @if (g.phase === 'guess') {
@@ -158,10 +181,10 @@
           @if (checking()) {
             <p class="status">{{ checkProgress() }} <button class="link" (click)="stopCheck()">parar</button></p>
           } @else if (uncheckedCount()) {
-            <p class="hint">{{ uncheckedCount() }} músicas sem conferência de ano.
+            <p class="hint">{{ uncheckedCount() }} faixas com "remaster" no nome ainda sem conferência de ano.
               <button class="link" (click)="checkYears()">Conferir agora</button></p>
-          } @else if (diffCount()) {
-            <p class="hint">{{ diffCount() }} anos corrigidos (o Spotify mostrava o ano de remaster ou coletânea).</p>
+          } @else if (remasterCount()) {
+            <p class="hint">{{ remasterCount() }} faixas com "remaster" no nome conferidas; {{ diffCount() }} tiveram o ano corrigido.</p>
           }
           <button class="link" (click)="showList.set(!showList())">{{ showList() ? 'Esconder lista' : 'Revisar músicas e anos' }}</button>
         </div>

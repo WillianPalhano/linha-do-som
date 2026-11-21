@@ -1,4 +1,4 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, ElementRef, HostListener, computed, inject, signal, viewChild } from '@angular/core';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { AuthError, Device, Song, SpotifyService, store } from './spotify.service';
 import { MusicBrainzService } from './musicbrainz.service';
@@ -72,7 +72,9 @@ export class AppComponent {
       : null;
   });
   diffCount = computed(() => this.songs().filter((s) => s.mbYear && s.mbYear !== s.spotifyYear).length);
-  uncheckedCount = computed(() => this.songs().filter((s) => !s.checked).length);
+  /** Só as faixas com "remaster" no nome passam pela conferência de ano. */
+  uncheckedCount = computed(() => this.songs().filter((s) => s.remaster && !s.checked).length);
+  remasterCount = computed(() => this.songs().filter((s) => s.remaster).length);
 
   constructor() {
     const lib = this.readJson<{ name: string; input: string; songs: Song[] }>(LIB);
@@ -180,7 +182,7 @@ export class AppComponent {
       this.songs.set(r.songs);
       this.saveLib();
       this.busy.set('');
-      void this.checkYears();
+      if (this.uncheckedCount()) void this.checkYears();
     } catch (e) { this.fail(e); }
   }
 
@@ -190,7 +192,7 @@ export class AppComponent {
     this.checking.set(true);
     this.stopRequested = false;
     const list = this.songs();
-    const todo = list.filter((s) => !s.checked);
+    const todo = list.filter((s) => s.remaster && !s.checked);
     let done = 0;
     for (const s of todo) {
       if (this.stopRequested) break;
@@ -209,6 +211,7 @@ export class AppComponent {
     this.checking.set(false);
     this.checkProgress.set('');
   }
+
   stopCheck(): void { this.stopRequested = true; }
 
   setYear(s: Song, v: string): void {
@@ -259,6 +262,7 @@ export class AppComponent {
     g.sel = null; g.phase = 'guess'; g.bonus = false; g.placedId = null;
     this.playMsg.set('');
     this.touch();
+    this.scrollStrip('middle');
     if (this.audioMode() === 'connect') void this.playCurrent();
   }
 
@@ -275,6 +279,7 @@ export class AppComponent {
     if (g.ok) { p.tl.splice(g.sel, 0, c); g.placedId = c.id; }
     g.phase = 'reveal';
     this.touch();
+    this.scrollStrip(g.ok ? 'new' : 'none');
   }
 
   skip(): void { const p = this.current(); if (p && p.tokens > 0) { p.tokens--; this.draw(); } }
@@ -307,5 +312,66 @@ export class AppComponent {
     if (i === tl.length) return `Depois de ${tl[tl.length - 1].year}`;
     return `Entre ${tl[i - 1].year} e ${tl[i].year}`;
   }
+  // ---------- linha do tempo horizontal + arrastar ----------
+  private strip = viewChild<ElementRef<HTMLElement>>('strip');
+  drag = signal<{ x: number; y: number; fromStrip: boolean } | null>(null);
+  dragOver = signal<number | null>(null);
+
+  private scrollStrip(where: 'middle' | 'new' | 'none'): void {
+    if (where === 'none') return;
+    setTimeout(() => {
+      const el = this.strip()?.nativeElement;
+      if (!el) return;
+      if (where === 'new') {
+        el.querySelector('.sq.new')?.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+      } else {
+        el.scrollLeft = (el.scrollWidth - el.clientWidth) / 2;
+      }
+    }, 60);
+  }
+
+  dragStart(e: PointerEvent, fromStrip: boolean): void {
+    if (this.game()?.phase !== 'guess') return;
+    e.preventDefault();
+    this.drag.set({ x: e.clientX, y: e.clientY, fromStrip });
+    this.dragOver.set(fromStrip ? this.game()?.sel ?? null : null);
+  }
+
+  @HostListener('document:pointermove', ['$event'])
+  onMove(e: PointerEvent): void {
+    if (!this.drag()) return;
+    this.drag.update((d) => (d ? { ...d, x: e.clientX, y: e.clientY } : d));
+    const el = this.strip()?.nativeElement;
+    if (!el) return;
+    const box = el.getBoundingClientRect();
+    if (e.clientY < box.top - 90 || e.clientY > box.bottom + 90) { this.dragOver.set(null); return; }
+    // rolagem automática perto das bordas
+    if (e.clientX < box.left + 48) el.scrollLeft -= 14;
+    else if (e.clientX > box.right - 48) el.scrollLeft += 14;
+    let best: number | null = null;
+    let dist = Infinity;
+    el.querySelectorAll<HTMLElement>('[data-i]').forEach((g) => {
+      const r = g.getBoundingClientRect();
+      const d = Math.abs(r.left + r.width / 2 - e.clientX);
+      if (d < dist) { dist = d; best = Number(g.dataset['i']); }
+    });
+    this.dragOver.set(best);
+  }
+
+  @HostListener('document:pointerup')
+  @HostListener('document:pointercancel')
+  onUp(): void {
+    const d = this.drag();
+    if (!d) return;
+    const target = this.dragOver();
+    const g = this.game();
+    if (g && g.phase === 'guess') {
+      g.sel = target;
+      this.touch();
+    }
+    this.drag.set(null);
+    this.dragOver.set(null);
+  }
+
   slots(tl: Song[]): number[] { return Array.from({ length: tl.length + 1 }, (_, i) => i); }
 }

@@ -8,6 +8,7 @@ export interface Song {
   spotifyYear: number; // ano do álbum no Spotify (pode ser de remaster/coletânea)
   mbYear?: number | null; // primeiro lançamento segundo o MusicBrainz
   isrc?: string;
+  remaster?: boolean; // nome da faixa ou do álbum menciona remaster → ano do Spotify é suspeito
   checked?: boolean;
   off?: boolean;       // fora do baralho
 }
@@ -66,7 +67,7 @@ interface SpotifyTrack {
   is_local?: boolean;
   name: string;
   artists: { name: string }[];
-  album?: { release_date?: string };
+  album?: { release_date?: string; name?: string };
   external_ids?: { isrc?: string };
 }
 
@@ -221,6 +222,7 @@ export class SpotifyService {
           year: y,
           spotifyYear: y,
           isrc: t.external_ids?.isrc,
+          remaster: /remaster/i.test(t.name) || /remaster/i.test(t.album?.name ?? ''),
         });
       }
       onProgress(songs.length);
