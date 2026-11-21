@@ -141,6 +141,35 @@
         <div class="sq ghost floating" [class.rival]="g.picker !== g.cur" [style.left.px]="d.x" [style.top.px]="d.y"><span class="q">?</span></div>
       }
 
+      @if (g.phase === 'reveal') {
+        <div class="names">
+          <b>Nome e artista</b>
+          @for (line of g.nameLog; track $index) { <div class="log">{{ line }}</div> }
+          @if (!g.nameDone) {
+            @if (g.namePending !== null) {
+              <span class="small"><b>{{ g.players[g.namePending].name }}</b> apostou 1 ficha. Acertou nome e artista?</span>
+              <div class="row">
+                <button class="sm" (click)="nameResult(true)">Acertou (+1)</button>
+                <button class="ghost sm" (click)="nameResult(false)">Errou (−1)</button>
+                <button class="link" (click)="nameCancel()">voltar</button>
+              </div>
+            } @else {
+              <div class="row">
+                <button class="sm" (click)="nameCurrent()">{{ p.name }} acertou (+1)</button>
+              </div>
+              @if (nameCandidates().length) {
+                <span class="small">{{ p.name }} não sabia? Outra pessoa pode apostar 1 ficha: acertando ganha +1, errando perde a ficha.</span>
+                <div class="row">
+                  @for (c of nameCandidates(); track c.i) {
+                    <button class="ghost sm" (click)="nameTry(c.i)">{{ c.q.name }} · 🎟 {{ c.q.tokens }}</button>
+                  }
+                </div>
+              }
+            }
+          }
+        </div>
+      }
+
       <div class="row actions">
         @if (g.phase === 'guess') {
           <button (click)="confirm()" [disabled]="g.sel === null">Confirmar posição</button>
@@ -150,9 +179,9 @@
             <button (click)="confirm()" [disabled]="g.sel === null">Confirmar contestação</button>
           } @else {
             <button class="big" (click)="reveal()">Revelar o ano</button>
+            <span class="small">Palpites de nome e artista: falem em voz alta antes de revelar.</span>
           }
         } @else {
-          <button class="ghost" (click)="bonus()" [disabled]="g.bonus">{{ p.name }} acertou artista e música? +1 ficha</button>
           <button (click)="next()">Próximo jogador →</button>
         }
       </div>

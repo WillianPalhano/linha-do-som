@@ -108,3 +108,5 @@ button:disabled{opacity:.4;cursor:not-allowed}
 .log{color:var(--mute);font-size:14px;margin-top:2px}
 .chip.warn{background:#ff6b6b33;color:var(--ink)}
 button.chip{min-height:0;border:0;font:500 13px Rubik,sans-serif;cursor:pointer}
+.names{display:grid;gap:8px;background:var(--bg2);border-radius:18px;padding:14px;margin:12px 0}
+.names>b{font-size:17px}

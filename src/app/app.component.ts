@@ -20,7 +20,11 @@ interface Game {
   winnerOfCard: number | null;
   log: string[];
   placedId: string | null;
-  bonus: boolean;
+  /** Rodada de nome e artista: alguém já acertou? quem já tentou? quem está tentando? */
+  nameDone: boolean;
+  nameTried: number[];
+  namePending: number | null;
+  nameLog: string[];
   winner: string | null;
 }
 
@@ -256,7 +260,7 @@ export class AppComponent {
     this.game.set({
       players: players.map((name) => ({ name, tl: [deck.pop()!], tokens: Math.max(0, this.startTokens()) })),
       deck, cur: 0, card: null, phase: 'guess', picks: [], picker: 0, sel: null, ok: false,
-      winnerOfCard: null, log: [], placedId: null, bonus: false, winner: null,
+      winnerOfCard: null, log: [], placedId: null, nameDone: false, nameTried: [], namePending: null, nameLog: [], winner: null,
     });
     void this.keepAwake();
     this.draw();
@@ -269,7 +273,8 @@ export class AppComponent {
     if (!g.deck.length) { this.finish(); return; }
     g.card = g.deck.pop()!;
     g.phase = 'guess'; g.picks = []; g.picker = g.cur; g.sel = null;
-    g.ok = false; g.winnerOfCard = null; g.log = []; g.bonus = false; g.placedId = null;
+    g.ok = false; g.winnerOfCard = null; g.log = []; g.placedId = null;
+    g.nameDone = false; g.nameTried = []; g.namePending = null; g.nameLog = [];
     this.playMsg.set('');
     this.touch();
     this.scrollStrip('middle');
@@ -358,7 +363,38 @@ export class AppComponent {
   }
 
   skip(): void { const p = this.current(); if (p && p.tokens > 0) { p.tokens--; this.draw(); } }
-  bonus(): void { const g = this.game(); const p = this.current(); if (g && p && !g.bonus) { p.tokens++; g.bonus = true; this.touch(); } }
+  // ---------- nome e artista ----------
+  /** O jogador da vez acertou nome e artista: +1 ficha. */
+  nameCurrent(): void {
+    const g = this.game(); const p = this.current();
+    if (!g || !p || g.nameDone) return;
+    p.tokens++; g.nameDone = true; g.nameLog.push(`${p.name} acertou nome e artista (+1 ficha).`);
+    this.touch();
+  }
+
+  /** Outros jogadores que ainda podem arriscar o nome (precisam de 1 ficha para apostar). */
+  nameCandidates = computed(() => {
+    const g = this.game();
+    if (!g || g.phase !== 'reveal' || g.nameDone) return [];
+    return g.players
+      .map((q, i) => ({ q, i }))
+      .filter(({ q, i }) => i !== g.cur && q.tokens > 0 && !g.nameTried.includes(i));
+  });
+
+  nameTry(i: number): void { const g = this.game(); if (g && !g.nameDone) { g.namePending = i; this.touch(); } }
+  nameCancel(): void { const g = this.game(); if (g) { g.namePending = null; this.touch(); } }
+
+  /** Aposta 1 ficha: se acertar, recupera a ficha e ganha mais 1 (+1); se errar, perde a ficha apostada (−1). */
+  nameResult(ok: boolean): void {
+    const g = this.game();
+    if (!g || g.namePending === null) return;
+    const r = g.players[g.namePending];
+    g.nameTried.push(g.namePending);
+    if (ok) { r.tokens += 1; g.nameDone = true; g.nameLog.push(`${r.name} acertou nome e artista (+1 ficha).`); }
+    else { r.tokens = Math.max(0, r.tokens - 1); g.nameLog.push(`${r.name} errou o nome e perdeu a ficha apostada (−1).`); }
+    g.namePending = null;
+    this.touch();
+  }
 
   next(): void {
     const g = this.game();
