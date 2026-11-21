@@ -31,7 +31,13 @@
             </div>
           </div>
           <p class="small center-text">Tocando em {{ deviceName() || 'Spotify' }}. Não abra a central de notificações: ela mostra o nome da música.</p>
-          @if (playMsg()) { <p class="err center-text">{{ playMsg() }}</p> }
+          @if (playMsg()) {
+            <p class="err center-text">{{ playMsg() }}</p>
+            <div class="row center">
+              <a class="btn-link" href="spotify:">Abrir o Spotify</a>
+              <button class="ghost sm" (click)="playCurrent()">Tentar de novo</button>
+            </div>
+          }
         } @else {
           <div class="player">
             @if (embedUrl(); as url) {
@@ -146,26 +152,25 @@
           <b>Nome e artista</b>
           @for (line of g.nameLog; track $index) { <div class="log">{{ line }}</div> }
           @if (!g.nameDone) {
-            @if (g.namePending !== null) {
-              <span class="small"><b>{{ g.players[g.namePending].name }}</b> apostou 1 ficha. Acertou nome e artista?</span>
-              <div class="row">
-                <button class="sm" (click)="nameResult(true)">Acertou (+1)</button>
-                <button class="ghost sm" (click)="nameResult(false)">Errou (−1)</button>
-                <button class="link" (click)="nameCancel()">voltar</button>
-              </div>
-            } @else {
-              <div class="row">
-                <button class="sm" (click)="nameCurrent()">{{ p.name }} acertou (+1)</button>
-              </div>
-              @if (nameCandidates().length) {
-                <span class="small">{{ p.name }} não sabia? Outra pessoa pode apostar 1 ficha: acertando ganha +1, errando perde a ficha.</span>
-                <div class="row">
-                  @for (c of nameCandidates(); track c.i) {
-                    <button class="ghost sm" (click)="nameTry(c.i)">{{ c.q.name }} · 🎟 {{ c.q.tokens }}</button>
-                  }
-                </div>
+            <span class="small">Quem acertou nome e artista?</span>
+            <div class="row">
+              <button class="pick" [class.on]="nameWinner() === g.cur" (click)="pickNameWinner(g.cur)">{{ p.name }}</button>
+              @for (c of nameBettors(); track c.i) {
+                <button class="pick" [class.on]="nameWinner() === c.i" (click)="pickNameWinner(c.i)">{{ c.q.name }}</button>
               }
+              <button class="pick" [class.on]="nameWinner() === 'none'" (click)="pickNameWinner('none')">Ninguém</button>
+            </div>
+            @if (nameBettors().length) {
+              <span class="small">Alguém apostou 1 ficha e errou? (perde a ficha)</span>
+              <div class="row">
+                @for (c of nameBettors(); track c.i) {
+                  @if (nameWinner() !== c.i) {
+                    <button class="pick miss" [class.on]="nameMissed().includes(c.i)" (click)="toggleNameMiss(c.i)">{{ c.q.name }}</button>
+                  }
+                }
+              </div>
             }
+            <div class="row"><button class="sm" (click)="applyNames()" [disabled]="nameWinner() === null">Aplicar</button></div>
           }
         </div>
       }

@@ -159,8 +159,12 @@ export class AppComponent {
     if (!c) return;
     this.playMsg.set('');
     try {
-      await this.sp.playTrack(c.id, this.deviceId());
+      const used = await this.sp.playTrack(c.id, this.deviceId(), this.deviceName());
+      if (used && used !== this.deviceId()) {
+        this.deviceId.set(used); store.set('lds.device', used);
+      }
       this.playing.set(true);
+      void this.sp.repeatTrack(used);
     } catch (e) {
       this.playing.set(false);
       this.playMsg.set(e instanceof Error ? e.message : String(e));
@@ -275,6 +279,7 @@ export class AppComponent {
     g.phase = 'guess'; g.picks = []; g.picker = g.cur; g.sel = null;
     g.ok = false; g.winnerOfCard = null; g.log = []; g.placedId = null;
     g.nameDone = false; g.nameTried = []; g.namePending = null; g.nameLog = [];
+    this.nameWinner.set(null); this.nameMissed.set([]);
     this.playMsg.set('');
     this.touch();
     this.scrollStrip('middle');
@@ -364,35 +369,47 @@ export class AppComponent {
 
   skip(): void { const p = this.current(); if (p && p.tokens > 0) { p.tokens--; this.draw(); } }
   // ---------- nome e artista ----------
-  /** O jogador da vez acertou nome e artista: +1 ficha. */
-  nameCurrent(): void {
-    const g = this.game(); const p = this.current();
-    if (!g || !p || g.nameDone) return;
-    p.tokens++; g.nameDone = true; g.nameLog.push(`${p.name} acertou nome e artista (+1 ficha).`);
-    this.touch();
-  }
+  /**
+   * Quem acertou nome e artista: o jogador da vez ganha +1 de graça.
+   * Outro jogador aposta 1 ficha: acertando recupera e ganha +1 (saldo +1); errando perde a apostada (−1).
+   */
+  nameWinner = signal<number | 'none' | null>(null);
+  nameMissed = signal<number[]>([]);
 
-  /** Outros jogadores que ainda podem arriscar o nome (precisam de 1 ficha para apostar). */
-  nameCandidates = computed(() => {
+  /** Outros jogadores que podem ter apostado (precisam de pelo menos 1 ficha). */
+  nameBettors = computed(() => {
     const g = this.game();
-    if (!g || g.phase !== 'reveal' || g.nameDone) return [];
-    return g.players
-      .map((q, i) => ({ q, i }))
-      .filter(({ q, i }) => i !== g.cur && q.tokens > 0 && !g.nameTried.includes(i));
+    if (!g) return [];
+    return g.players.map((q, i) => ({ q, i })).filter(({ q, i }) => i !== g.cur && q.tokens > 0);
   });
 
-  nameTry(i: number): void { const g = this.game(); if (g && !g.nameDone) { g.namePending = i; this.touch(); } }
-  nameCancel(): void { const g = this.game(); if (g) { g.namePending = null; this.touch(); } }
+  pickNameWinner(w: number | 'none'): void {
+    this.nameWinner.set(this.nameWinner() === w ? null : w);
+    this.nameMissed.update((m) => m.filter((i) => i !== w));
+  }
+  toggleNameMiss(i: number): void {
+    this.nameMissed.update((m) => (m.includes(i) ? m.filter((x) => x !== i) : [...m, i]));
+  }
 
-  /** Aposta 1 ficha: se acertar, recupera a ficha e ganha mais 1 (+1); se errar, perde a ficha apostada (−1). */
-  nameResult(ok: boolean): void {
+  applyNames(): void {
     const g = this.game();
-    if (!g || g.namePending === null) return;
-    const r = g.players[g.namePending];
-    g.nameTried.push(g.namePending);
-    if (ok) { r.tokens += 1; g.nameDone = true; g.nameLog.push(`${r.name} acertou nome e artista (+1 ficha).`); }
-    else { r.tokens = Math.max(0, r.tokens - 1); g.nameLog.push(`${r.name} errou o nome e perdeu a ficha apostada (−1).`); }
-    g.namePending = null;
+    const w = this.nameWinner();
+    if (!g || g.nameDone || w === null) return;
+    if (w === 'none') g.nameLog.push('Ninguém acertou nome e artista.');
+    else {
+      g.players[w].tokens += 1;
+      g.nameLog.push(w === g.cur
+        ? `${g.players[w].name} acertou nome e artista (+1 ficha).`
+        : `${g.players[w].name} apostou, acertou nome e artista (+1 ficha).`);
+    }
+    for (const i of this.nameMissed()) {
+      if (i === w || i === g.cur) continue;
+      const r = g.players[i];
+      r.tokens = Math.max(0, r.tokens - 1);
+      g.nameLog.push(`${r.name} apostou no nome e errou (−1 ficha).`);
+    }
+    g.nameDone = true;
+    this.nameWinner.set(null); this.nameMissed.set([]);
     this.touch();
   }
 

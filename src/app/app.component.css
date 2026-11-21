@@ -110,3 +110,7 @@ button:disabled{opacity:.4;cursor:not-allowed}
 button.chip{min-height:0;border:0;font:500 13px Rubik,sans-serif;cursor:pointer}
 .names{display:grid;gap:8px;background:var(--bg2);border-radius:18px;padding:14px;margin:12px 0}
 .names>b{font-size:17px}
+.pick{min-height:40px;padding:6px 14px;font-size:14px;background:var(--bg);color:var(--ink);border:2px solid #ffffff30}
+.pick.on{background:var(--ok);color:#1c0a2b;border-color:var(--ok)}
+.pick.miss.on{background:var(--bad);border-color:var(--bad)}
+.btn-link{display:inline-flex;align-items:center;min-height:40px;padding:6px 16px;border-radius:999px;background:var(--yel);color:#1c0a2b;font-weight:700;text-decoration:none}

@@ -238,9 +238,7 @@ export class SpotifyService {
     if (r.ok) return r;
     let reason = '';
     try { reason = ((await r.json()) as { error?: { reason?: string } }).error?.reason ?? ''; } catch { /* sem corpo */ }
-    if (r.status === 404 || reason === 'NO_ACTIVE_DEVICE') {
-      throw new Error('O Spotify não encontrou o aparelho. Abra o app do Spotify, toque qualquer música por um segundo, volte aqui e tente de novo.');
-    }
+    if (r.status === 404 || reason === 'NO_ACTIVE_DEVICE') throw new NoDeviceError();
     if (reason === 'PREMIUM_REQUIRED') throw new Error('Controlar o player exige uma conta Spotify Premium.');
     if (r.status === 403) throw new Error('O Spotify recusou o comando. Entre de novo para liberar o controle do player.');
     throw new Error(`O Spotify respondeu com erro ${r.status} ao controlar o player.`);
@@ -252,13 +250,54 @@ export class SpotifyService {
     return (j.devices ?? []).filter((d) => !!d.id);
   }
 
-  async playTrack(trackId: string, deviceId: string, positionMs = 0): Promise<void> {
+  /** Acorda o aparelho: transfere a reprodução para ele sem tocar nada. */
+  private async transfer(deviceId: string): Promise<void> {
+    await this.player('PUT', '/me/player', { device_ids: [deviceId], play: false });
+  }
+
+  private async playOn(trackId: string, deviceId: string, positionMs: number): Promise<void> {
     const q = deviceId ? `?device_id=${encodeURIComponent(deviceId)}` : '';
     await this.player('PUT', `/me/player/play${q}`, { uris: [`spotify:track:${trackId}`], position_ms: positionMs });
+  }
+
+  /**
+   * Toca a faixa e tenta se recuperar quando o Spotify "esquece" o aparelho entre as rodadas:
+   * 1) toca direto; 2) transfere a reprodução para o aparelho e tenta de novo;
+   * 3) procura o aparelho pelo nome (o id pode mudar) ou usa o que estiver ativo.
+   * Devolve o id do aparelho que funcionou.
+   */
+  async playTrack(trackId: string, deviceId: string, deviceName = '', positionMs = 0): Promise<string> {
+    try { await this.playOn(trackId, deviceId, positionMs); return deviceId; }
+    catch (e) { if (!(e instanceof NoDeviceError)) throw e; }
+
+    if (deviceId) {
+      try { await this.transfer(deviceId); await sleep(700); await this.playOn(trackId, deviceId, positionMs); return deviceId; }
+      catch (e) { if (!(e instanceof NoDeviceError)) throw e; }
+    }
+
+    const list = await this.devices();
+    const alt = list.find((d) => d.id === deviceId) ?? list.find((d) => d.name === deviceName) ?? list.find((d) => d.is_active) ?? list[0];
+    if (!alt) throw new NoDeviceError();
+    await this.transfer(alt.id);
+    await sleep(700);
+    await this.playOn(trackId, alt.id, positionMs);
+    return alt.id;
+  }
+
+  /** Repete a faixa atual: o Spotify não fica parado (e não é suspenso pelo celular) enquanto a turma discute. */
+  async repeatTrack(deviceId: string): Promise<void> {
+    const q = deviceId ? `&device_id=${encodeURIComponent(deviceId)}` : '';
+    try { await this.player('PUT', `/me/player/repeat?state=track${q}`); } catch { /* opcional */ }
   }
 
   async pause(deviceId: string): Promise<void> {
     const q = deviceId ? `?device_id=${encodeURIComponent(deviceId)}` : '';
     try { await this.player('PUT', `/me/player/pause${q}`); } catch { /* já pausado: o Spotify responde 403 */ }
+  }
+}
+
+export class NoDeviceError extends Error {
+  constructor() {
+    super('O Spotify não encontrou o aparelho. Toque em "Abrir o Spotify", dê play em qualquer música e volte aqui.');
   }
 }
