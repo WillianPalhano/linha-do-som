@@ -4,14 +4,21 @@ import { AuthError, Device, Song, SpotifyService, store } from './spotify.servic
 import { MusicBrainzService } from './musicbrainz.service';
 
 interface Player { name: string; tl: Song[]; tokens: number }
+/** Uma posição escolhida na linha do tempo do jogador da vez (a dele ou a de quem contestou). */
+interface Pick { p: number; slot: number; ok?: boolean }
 interface Game {
   players: Player[];
   deck: Song[];
   cur: number;
   card: Song | null;
-  sel: number | null;
-  phase: 'guess' | 'reveal';
-  ok: boolean;
+  /** guess: jogador da vez escolhe · challenge: rodada de "Hitster!" · reveal: ano aberto */
+  phase: 'guess' | 'challenge' | 'reveal';
+  picks: Pick[];        // picks[0] é sempre do jogador da vez
+  picker: number | null; // quem está escolhendo agora
+  sel: number | null;    // posição sendo escolhida (ainda não confirmada)
+  ok: boolean;           // o jogador da vez acertou?
+  winnerOfCard: number | null;
+  log: string[];
   placedId: string | null;
   bonus: boolean;
   winner: string | null;
@@ -248,8 +255,10 @@ export class AppComponent {
     const deck = this.shuffle(pool.map((s) => ({ ...s })));
     this.game.set({
       players: players.map((name) => ({ name, tl: [deck.pop()!], tokens: Math.max(0, this.startTokens()) })),
-      deck, cur: 0, card: null, sel: null, phase: 'guess', ok: false, placedId: null, bonus: false, winner: null,
+      deck, cur: 0, card: null, phase: 'guess', picks: [], picker: 0, sel: null, ok: false,
+      winnerOfCard: null, log: [], placedId: null, bonus: false, winner: null,
     });
+    void this.keepAwake();
     this.draw();
     window.scrollTo({ top: 0 });
   }
@@ -259,27 +268,93 @@ export class AppComponent {
     if (!g) return;
     if (!g.deck.length) { this.finish(); return; }
     g.card = g.deck.pop()!;
-    g.sel = null; g.phase = 'guess'; g.bonus = false; g.placedId = null;
+    g.phase = 'guess'; g.picks = []; g.picker = g.cur; g.sel = null;
+    g.ok = false; g.winnerOfCard = null; g.log = []; g.bonus = false; g.placedId = null;
     this.playMsg.set('');
     this.touch();
     this.scrollStrip('middle');
     if (this.audioMode() === 'connect') void this.playCurrent();
   }
 
-  choose(i: number): void { const g = this.game(); if (g && g.phase === 'guess') { g.sel = i; this.touch(); } }
+  /** Posição já ocupada por um palpite confirmado? */
+  takenBy(i: number): Pick | undefined { return this.game()?.picks.find((k) => k.slot === i); }
+  firstName(i: number): string { return this.game()?.players[i]?.name.split(' ')[0] ?? ''; }
+
+  choose(i: number): void {
+    const g = this.game();
+    if (!g || g.picker === null || g.phase === 'reveal' || this.takenBy(i)) return;
+    g.sel = i; this.touch();
+  }
+
+  /** Quem ainda pode gritar "Hitster!": outros jogadores com ficha que não contestaram nesta rodada. */
+  challengers = computed(() => {
+    const g = this.game();
+    if (!g || g.phase !== 'challenge') return [];
+    return g.players
+      .map((q, i) => ({ q, i }))
+      .filter(({ q, i }) => i !== g.cur && q.tokens > 0 && !g.picks.some((k) => k.p === i));
+  });
 
   confirm(): void {
     const g = this.game();
-    const p = this.current();
-    if (!g || !p || !g.card || g.sel === null) return;
-    const prev = p.tl[g.sel - 1];
-    const next = p.tl[g.sel];
-    const c = g.card;
-    g.ok = (!prev || prev.year <= c.year) && (!next || c.year <= next.year);
-    if (g.ok) { p.tl.splice(g.sel, 0, c); g.placedId = c.id; }
-    g.phase = 'reveal';
+    if (!g || g.picker === null || g.sel === null || this.takenBy(g.sel)) return;
+    g.picks.push({ p: g.picker, slot: g.sel });
+    g.picker = null; g.sel = null; g.phase = 'challenge';
     this.touch();
-    this.scrollStrip(g.ok ? 'new' : 'none');
+    if (!this.challengers().length) this.reveal();
+  }
+
+  startChallenge(i: number): void {
+    const g = this.game();
+    if (!g || g.phase !== 'challenge') return;
+    g.picker = i; g.sel = null; this.touch();
+  }
+  cancelChallenge(): void { const g = this.game(); if (g) { g.picker = null; g.sel = null; this.touch(); } }
+
+  reveal(): void {
+    const g = this.game();
+    const cur = this.current();
+    if (!g || !cur || !g.card) return;
+    const c = g.card;
+    const valid = (slot: number) => {
+      const prev = cur.tl[slot - 1];
+      const next = cur.tl[slot];
+      return (!prev || prev.year <= c.year) && (!next || c.year <= next.year);
+    };
+    g.picks.forEach((k) => (k.ok = valid(k.slot)));
+    const [mine, ...rivals] = g.picks;
+    g.ok = !!mine.ok;
+    g.log = [];
+
+    // Quem fica com o cartão: o jogador da vez se acertou; senão o primeiro que contestou e acertou.
+    const taker = g.ok ? mine : rivals.find((k) => k.ok);
+    if (taker) {
+      const owner = g.players[taker.p];
+      const at = taker.p === g.cur ? mine.slot : owner.tl.findIndex((s) => s.year > c.year);
+      owner.tl.splice(at < 0 ? owner.tl.length : at, 0, c);
+      g.winnerOfCard = taker.p;
+      g.placedId = taker.p === g.cur ? c.id : null;
+    }
+    g.log.push(g.ok ? `${cur.name} acertou e ficou com o cartão.` : `${cur.name} errou a posição.`);
+
+    // Quem contesta paga 1 ficha, a não ser que também tenha acertado junto com o jogador da vez
+    // (só acontece quando o ano é igual ao de um cartão vizinho).
+    for (const k of rivals) {
+      const r = g.players[k.p];
+      if (g.ok && k.ok) {
+        g.log.push(`${r.name} contestou, mas o ano empatou: não perde a ficha.`);
+      } else {
+        r.tokens = Math.max(0, r.tokens - 1);
+        g.log.push(k === taker
+          ? `${r.name} contestou, acertou e roubou o cartão (−1 ficha).`
+          : `${r.name} contestou e ${k.ok ? 'acertou, mas chegou depois' : 'errou'} (−1 ficha).`);
+      }
+    }
+    if (!taker && rivals.length) g.log.push('Ninguém acertou: o cartão vai para o descarte.');
+
+    g.phase = 'reveal'; g.picker = null; g.sel = null;
+    this.touch();
+    this.scrollStrip(g.placedId ? 'new' : 'none');
   }
 
   skip(): void { const p = this.current(); if (p && p.tokens > 0) { p.tokens--; this.draw(); } }
@@ -289,7 +364,8 @@ export class AppComponent {
     const g = this.game();
     const p = this.current();
     if (!g || !p) return;
-    if (p.tl.length >= this.goal()) { g.winner = p.name; this.touch(); return; }
+    const done = [p, ...g.players].find((q) => q.tl.length >= this.goal());
+    if (done) { g.winner = done.name; this.touch(); return; }
     g.cur = (g.cur + 1) % g.players.length;
     this.draw();
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -304,8 +380,34 @@ export class AppComponent {
 
   quit(): void {
     if (this.audioMode() === 'connect' && this.playing()) void this.pausePlayback();
+    void this.releaseAwake();
     this.game.set(null);
   }
+
+  // ---------- tela sempre ligada (Screen Wake Lock API) ----------
+  awake = signal<'on' | 'off' | 'unsupported'>('off');
+  private lock: { release(): Promise<void>; addEventListener(t: 'release', f: () => void): void } | null = null;
+
+  private async keepAwake(): Promise<void> {
+    const wl = (navigator as Navigator & { wakeLock?: { request(t: 'screen'): Promise<NonNullable<AppComponent['lock']>> } }).wakeLock;
+    if (!wl) { this.awake.set('unsupported'); return; }
+    try {
+      this.lock = await wl.request('screen');
+      this.awake.set('on');
+      this.lock.addEventListener('release', () => { this.lock = null; this.awake.set('off'); });
+    } catch { this.awake.set('off'); }
+  }
+  private async releaseAwake(): Promise<void> {
+    const l = this.lock; this.lock = null;
+    try { await l?.release(); } catch { /* já liberado */ }
+    this.awake.set('off');
+  }
+  /** O sistema solta o bloqueio quando a aba some; pede de novo ao voltar. */
+  @HostListener('document:visibilitychange')
+  onVisible(): void {
+    if (document.visibilityState === 'visible' && this.game() && !this.lock) void this.keepAwake();
+  }
+  retryAwake(): void { void this.keepAwake(); }
 
   slotLabel(tl: Song[], i: number): string {
     if (i === 0) return `Antes de ${tl[0].year}`;
@@ -331,7 +433,8 @@ export class AppComponent {
   }
 
   dragStart(e: PointerEvent, fromStrip: boolean): void {
-    if (this.game()?.phase !== 'guess') return;
+    const g = this.game();
+    if (!g || g.picker === null || g.phase === 'reveal') return;
     e.preventDefault();
     this.drag.set({ x: e.clientX, y: e.clientY, fromStrip });
     this.dragOver.set(fromStrip ? this.game()?.sel ?? null : null);
@@ -365,8 +468,8 @@ export class AppComponent {
     if (!d) return;
     const target = this.dragOver();
     const g = this.game();
-    if (g && g.phase === 'guess') {
-      g.sel = target;
+    if (g && g.picker !== null && g.phase !== 'reveal') {
+      g.sel = target !== null && this.takenBy(target) ? g.sel : target;
       this.touch();
     }
     this.drag.set(null);

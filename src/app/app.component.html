@@ -7,6 +7,13 @@
           <span class="chip">🎟 {{ p.tokens }} fichas</span>
           <span class="chip">{{ p.tl.length }}/{{ goal() }} cartas</span>
           <span class="chip">{{ g.deck.length }} no baralho</span>
+          @if (awake() === 'on') {
+            <span class="chip">🔆 Tela ligada</span>
+          } @else if (awake() === 'off') {
+            <button class="chip warn" (click)="retryAwake()">Manter tela ligada</button>
+          } @else {
+            <span class="chip warn">Este navegador pode apagar a tela</span>
+          }
         </div>
       </div>
 
@@ -53,11 +60,10 @@
               </label>
             </details>
           }
-        } @else if (g.card) {
+        } @else if (g.phase === 'reveal' && g.card) {
           <div class="reveal">
-            <div class="verdict" [class.ok]="g.ok" [class.bad]="!g.ok">
-              {{ g.ok ? 'Acertou! O cartão é seu.' : 'Errou! O cartão vai para o descarte.' }}
-            </div>
+            <div class="verdict" [class.ok]="g.ok" [class.bad]="!g.ok">{{ g.log[0] }}</div>
+            @for (line of g.log.slice(1); track $index) { <div class="log">{{ line }}</div> }
             <div class="yr">{{ g.card.year }}</div>
             <div class="t">{{ g.card.title }}</div>
             <div class="a">{{ g.card.artist }}</div>
@@ -65,16 +71,36 @@
         }
       </section>
 
-      @if (g.phase === 'guess') {
+      @if (g.picker !== null && g.phase !== 'reveal') {
         <div class="hand">
           @if (g.sel === null) {
-            <div class="sq ghost" [class.lifted]="!!drag()" (pointerdown)="dragStart($event, false)">
-              <span class="q">?</span><span class="lbl">Arraste</span>
+            <div class="sq ghost" [class.rival]="g.picker !== g.cur" [class.lifted]="!!drag()" (pointerdown)="dragStart($event, false)">
+              <span class="q">?</span><span class="lbl">{{ g.picker === g.cur ? 'Arraste' : firstName(g.picker) }}</span>
             </div>
-            <p class="small">Arraste o cartão para a linha do tempo ou toque num <b>+</b>. Deslize a linha para os lados.</p>
-          } @else {
-            <p class="small">Cartão posicionado. Arraste para mudar ou confirme.</p>
           }
+          <p class="small">
+            @if (g.phase === 'challenge') {
+              <b>{{ g.players[g.picker].name }}</b> contestou: arraste o cartão para onde você acha que a música entra.
+            } @else if (g.sel === null) {
+              Arraste o cartão para a linha do tempo ou toque num <b>+</b>. Deslize a linha para os lados.
+            } @else {
+              Cartão posicionado. Arraste para mudar ou confirme.
+            }
+          </p>
+        </div>
+      }
+
+      @if (g.phase === 'challenge' && g.picker === null) {
+        <div class="hitster">
+          <b>Hitster!</b> Alguém contesta a posição de {{ p.name }}?
+          <span class="small">Quem contesta paga 1 ficha, a não ser que o ano empate e os dois acertem.</span>
+          <div class="row">
+            @for (c of challengers(); track c.i) {
+              <button class="ghost sm" (click)="startChallenge(c.i)">{{ c.q.name }} · 🎟 {{ c.q.tokens }}</button>
+            } @empty {
+              <span class="small">Ninguém mais tem ficha para contestar.</span>
+            }
+          </div>
         </div>
       }
 
@@ -85,14 +111,20 @@
       <div class="strip" #strip [class.dragging]="!!drag()">
         <div class="track">
           @for (i of slots(p.tl); track i) {
-            @if (g.phase === 'guess') {
-              @if (g.sel === i && !(drag()?.fromStrip)) {
-                <div class="sq ghost placed" [attr.data-i]="i" (pointerdown)="dragStart($event, true)">
-                  <span class="q">?</span><span class="lbl">Aqui</span>
+            @if (g.phase !== 'reveal') {
+              @if (takenBy(i); as k) {
+                <div class="sq ghost locked" [class.rival]="k.p !== g.cur">
+                  <span class="q">?</span><span class="lbl">{{ firstName(k.p) }}</span>
                 </div>
-              } @else {
-                <button class="gap" [attr.data-i]="i" [class.hot]="dragOver() === i" (click)="choose(i)"
-                  [attr.aria-label]="slotLabel(p.tl, i)"><span>+</span></button>
+              } @else if (g.picker !== null) {
+                @if (g.sel === i && !(drag()?.fromStrip)) {
+                  <div class="sq ghost placed" [class.rival]="g.picker !== g.cur" [attr.data-i]="i" (pointerdown)="dragStart($event, true)">
+                    <span class="q">?</span><span class="lbl">{{ firstName(g.picker) }}</span>
+                  </div>
+                } @else {
+                  <button class="gap" [attr.data-i]="i" [class.hot]="dragOver() === i" (click)="choose(i)"
+                    [attr.aria-label]="slotLabel(p.tl, i)"><span>+</span></button>
+                }
               }
             }
             @if (i < p.tl.length) {
@@ -106,14 +138,21 @@
         </div>
       </div>
       @if (drag(); as d) {
-        <div class="sq ghost floating" [style.left.px]="d.x" [style.top.px]="d.y"><span class="q">?</span></div>
+        <div class="sq ghost floating" [class.rival]="g.picker !== g.cur" [style.left.px]="d.x" [style.top.px]="d.y"><span class="q">?</span></div>
       }
 
       <div class="row actions">
         @if (g.phase === 'guess') {
           <button (click)="confirm()" [disabled]="g.sel === null">Confirmar posição</button>
+        } @else if (g.phase === 'challenge') {
+          @if (g.picker !== null) {
+            <button class="ghost" (click)="cancelChallenge()">Cancelar</button>
+            <button (click)="confirm()" [disabled]="g.sel === null">Confirmar contestação</button>
+          } @else {
+            <button class="big" (click)="reveal()">Revelar o ano</button>
+          }
         } @else {
-          <button class="ghost" (click)="bonus()" [disabled]="g.bonus">Acertou artista e música? +1 ficha</button>
+          <button class="ghost" (click)="bonus()" [disabled]="g.bonus">{{ p.name }} acertou artista e música? +1 ficha</button>
           <button (click)="next()">Próximo jogador →</button>
         }
       </div>

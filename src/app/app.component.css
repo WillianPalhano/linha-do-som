@@ -101,3 +101,10 @@ button:disabled{opacity:.4;cursor:not-allowed}
 .mode.on,.device.on{border-color:var(--yel)}
 .steps{margin:6px 0 12px;padding-left:20px;color:var(--mute);font-size:14px}
 .devices{display:grid;gap:8px;margin-top:10px}
+.sq.ghost.rival{background:var(--cyan);color:#1c0a2b;border-color:#1c0a2b55}
+.sq.ghost.locked{cursor:default;opacity:.9;border-style:solid}
+.hitster{display:grid;gap:8px;background:var(--bg2);border:2px solid var(--yel);border-radius:18px;padding:14px;margin:10px 0}
+.hitster>b{font:900 22px Rubik,sans-serif;color:var(--yel)}
+.log{color:var(--mute);font-size:14px;margin-top:2px}
+.chip.warn{background:#ff6b6b33;color:var(--ink)}
+button.chip{min-height:0;border:0;font:500 13px Rubik,sans-serif;cursor:pointer}
