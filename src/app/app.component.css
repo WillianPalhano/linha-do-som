@@ -103,8 +103,6 @@ button:disabled{opacity:.4;cursor:not-allowed}
 .devices{display:grid;gap:8px;margin-top:10px}
 .sq.ghost.rival{background:var(--cyan);color:#1c0a2b;border-color:#1c0a2b55}
 .sq.ghost.locked{cursor:default;opacity:.9;border-style:solid}
-.hitster{display:grid;gap:8px;background:var(--bg2);border:2px solid var(--yel);border-radius:18px;padding:14px;margin:10px 0}
-.hitster>b{font:900 22px Rubik,sans-serif;color:var(--yel)}
 .log{color:var(--mute);font-size:14px;margin-top:2px}
 .chip.warn{background:#ff6b6b33;color:var(--ink)}
 button.chip{min-height:0;border:0;font:500 13px Rubik,sans-serif;cursor:pointer}
@@ -132,3 +130,20 @@ button.buy{min-height:34px;padding:4px 12px;font-size:13px}
 .pl .sm{min-width:44px;padding:6px 10px}
 .pl .del.armed{background:var(--bad);border-color:var(--bad);color:#1c0a2b}
 .ask{font:900 22px/1.2 Rubik,sans-serif;color:var(--yel);margin:4px 0 0}
+/* layout compacto do jogo: cabeçalho numa linha, player baixo e barra de ações fixa */
+.wrap:has(.actions){padding-bottom:calc(96px + env(safe-area-inset-bottom))}
+.turn{flex-wrap:nowrap;align-items:center;gap:10px}
+.turn b{font-size:22px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.chips{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;gap:5px}
+.chips::-webkit-scrollbar{display:none}
+.chip{padding:4px 9px}
+.stage{padding:12px;gap:8px;margin:10px 0}
+.deck{flex-wrap:nowrap;gap:10px;padding:0}
+.deck button{flex:1 1 0;min-width:0;min-height:48px;padding:8px 10px;font-size:16px;white-space:nowrap}
+.disc.big{width:52px;height:52px}
+.disc.big::after{inset:19px}
+.center-text{font-size:12px}
+.actions{position:fixed;left:0;right:0;bottom:0;z-index:4;margin:0;padding:10px max(4vw,14px) calc(10px + env(safe-area-inset-bottom));background:linear-gradient(#1c0a2b00,var(--bg) 22%)}
+.bar{display:flex;gap:10px;max-width:720px;margin:0 auto}
+.bar button{flex:1 1 0;min-height:54px;font-size:17px;box-shadow:0 6px 18px #0008}
+.bar button.ghost{flex:0 1 auto;background:var(--bg2)}

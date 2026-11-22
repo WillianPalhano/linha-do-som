@@ -2,17 +2,17 @@
   <main class="wrap">
     @if (current(); as p) {
       <div class="turn">
-        <div><span class="small">Vez de</span><br><b>{{ p.name }}</b></div>
+        <b>{{ p.name }}</b>
         <div class="chips">
-          <span class="chip">🎟 {{ p.tokens }} fichas</span>
-          <span class="chip">{{ p.tl.length }}/{{ goal() }} cartas</span>
-          <span class="chip">{{ g.deck.length }} no baralho</span>
+          <span class="chip" title="Fichas">🎟 {{ p.tokens }}</span>
+          <span class="chip" title="Cartas">🃏 {{ p.tl.length }}/{{ goal() }}</span>
+          <span class="chip" title="No baralho">📦 {{ g.deck.length }}</span>
           @if (awake() === 'on') {
-            <span class="chip">🔆 Tela ligada</span>
+            <span class="chip" title="Tela ligada" aria-label="Tela ligada">🔆</span>
           } @else if (awake() === 'off') {
-            <button class="chip warn" (click)="retryAwake()">Manter tela ligada</button>
+            <button class="chip warn" (click)="retryAwake()">🔅 Manter tela</button>
           } @else {
-            <span class="chip warn">Este navegador pode apagar a tela</span>
+            <span class="chip warn" title="Este navegador pode apagar a tela">⚠ Tela</span>
           }
         </div>
       </div>
@@ -21,16 +21,14 @@
         @if (audioMode() === 'connect') {
           <div class="deck">
             <span class="disc big" [class.spin]="playing()"></span>
-            <div class="controls">
-              <button class="play" (click)="playCurrent()" aria-label="Tocar do início">↺ Do início</button>
-              @if (playing()) {
-                <button class="ghost" (click)="pausePlayback()">⏸ Pausar</button>
-              } @else {
-                <button class="ghost" (click)="playCurrent()">▶ Tocar</button>
-              }
-            </div>
+            <button class="play" (click)="playCurrent()" aria-label="Tocar do início">↺ Do início</button>
+            @if (playing()) {
+              <button class="ghost" (click)="pausePlayback()">⏸ Pausar</button>
+            } @else {
+              <button class="ghost" (click)="playCurrent()">▶ Tocar</button>
+            }
           </div>
-          <p class="small center-text">Tocando em {{ deviceName() || 'Spotify' }}. Não abra a central de notificações: ela mostra o nome da música.</p>
+          <p class="small center-text">Tocando em {{ deviceName() || 'Spotify' }} · não abra a central de notificações.</p>
           @if (playMsg()) {
             <p class="err center-text">{{ playMsg() }}</p>
             <div class="row center">
@@ -55,9 +53,6 @@
         }
 
         @if (g.phase === 'guess') {
-          <div class="row center">
-            <button class="ghost" (click)="skip()" [disabled]="p.tokens < 1">Pular (1 ficha)</button>
-          </div>
           @if (audioMode() === 'embed') {
             <details class="adjust">
               <summary>O botão de play ficou escondido?</summary>
@@ -95,20 +90,6 @@
               Cartão posicionado. Arraste para mudar ou confirme.
             }
           </p>
-        </div>
-      }
-
-      @if (g.phase === 'challenge' && g.picker === null) {
-        <div class="hitster">
-          <b>Hitster!</b> Alguém contesta a posição de {{ p.name }}?
-          <span class="small">Quem contesta paga 1 ficha, a não ser que o ano empate e os dois acertem.</span>
-          <div class="row">
-            @for (c of challengers(); track c.i) {
-              <button class="ghost sm" (click)="startChallenge(c.i)">{{ c.q.name }} · 🎟 {{ c.q.tokens }}</button>
-            } @empty {
-              <span class="small">Ninguém mais tem ficha para contestar.</span>
-            }
-          </div>
         </div>
       }
 
@@ -153,6 +134,21 @@
         <div class="sq ghost floating" [class.rival]="g.picker !== g.cur" [style.left.px]="d.x" [style.top.px]="d.y"><span class="q">?</span></div>
       }
 
+      @if (g.phase === 'challenge' && g.picker === null) {
+        <div class="names">
+          <b>Hitster!</b>
+          <p class="ask">Alguém contesta a posição de {{ p.name }}?</p>
+          <span class="small">Quem contesta paga 1 ficha, a não ser que o ano empate e os dois acertem. Se ninguém contestar, revelem o ano.</span>
+          <div class="picks">
+            @for (c of challengers(); track c.i) {
+              <button class="pick" (click)="startChallenge(c.i)">{{ c.q.name }} <span>· 🎟 {{ c.q.tokens }}</span></button>
+            } @empty {
+              <span class="small">Ninguém mais tem ficha para contestar.</span>
+            }
+          </div>
+        </div>
+      }
+
       @if (g.phase === 'reveal') {
         <div class="names">
           <b>Nome e artista</b>
@@ -185,20 +181,22 @@
         </div>
       }
 
-      <div class="row actions">
-        @if (g.phase === 'guess') {
-          <button (click)="confirm()" [disabled]="g.sel === null">Confirmar posição</button>
-        } @else if (g.phase === 'challenge') {
-          @if (g.picker !== null) {
-            <button class="ghost" (click)="cancelChallenge()">Cancelar</button>
-            <button (click)="confirm()" [disabled]="g.sel === null">Confirmar contestação</button>
+      <div class="actions">
+        <div class="bar">
+          @if (g.phase === 'guess') {
+            <button class="ghost" (click)="skip()" [disabled]="p.tokens < 1">Pular · 🎟 1</button>
+            <button (click)="confirm()" [disabled]="g.sel === null">Confirmar posição</button>
+          } @else if (g.phase === 'challenge') {
+            @if (g.picker !== null) {
+              <button class="ghost" (click)="cancelChallenge()">Cancelar</button>
+              <button (click)="confirm()" [disabled]="g.sel === null">Confirmar contestação</button>
+            } @else {
+              <button (click)="reveal()">Revelar o ano</button>
+            }
           } @else {
-            <button class="big" (click)="reveal()">Revelar o ano</button>
-            <span class="small">Palpites de nome e artista: falem em voz alta antes de revelar.</span>
+            <button (click)="next()">Próximo jogador →</button>
           }
-        } @else {
-          <button (click)="next()">Próximo jogador →</button>
-        }
+        </div>
       </div>
 
       <h2>Placar</h2>
