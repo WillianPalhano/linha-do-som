@@ -131,3 +131,4 @@ button.buy{min-height:34px;padding:4px 12px;font-size:13px}
 .pl-main span{font-size:12px;color:var(--mute);font-weight:400}
 .pl .sm{min-width:44px;padding:6px 10px}
 .pl .del.armed{background:var(--bad);border-color:var(--bad);color:#1c0a2b}
+.ask{font:900 22px/1.2 Rubik,sans-serif;color:var(--yel);margin:4px 0 0}
