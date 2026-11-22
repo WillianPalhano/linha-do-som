@@ -586,7 +586,8 @@ export class AppComponent {
   next(): void {
     const g = this.game();
     const p = this.current();
-    if (!g || !p) return;
+    // Só passa a vez depois de revelar o ano e decidir nome e artista.
+    if (!g || !p || g.phase !== 'reveal' || !g.nameDone) return;
     const done = [p, ...g.players].find((q) => q.tl.length >= this.goal());
     if (done) { g.winner = done.name; this.touch(); return; }
     g.cur = (g.cur + 1) % g.players.length;
