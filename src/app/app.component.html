@@ -158,6 +158,8 @@
           <b>Nome e artista</b>
           @for (line of g.nameLog; track $index) { <div class="log">{{ line }}</div> }
           @if (!g.namesShown) {
+            <p class="ask">Alguém sabe o nome e o artista?</p>
+            <span class="small">Cada um fala o palpite, na ordem que vocês combinarem. Depois revelem e marquem quem acertou.</span>
             <button class="wide" (click)="showNames()">Revelar nome e artista</button>
           } @else if (!g.nameDone) {
             <span class="small">Quem acertou nome e artista?</span>
