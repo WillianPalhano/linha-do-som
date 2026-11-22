@@ -71,8 +71,10 @@
             <div class="verdict" [class.ok]="g.ok" [class.bad]="!g.ok">{{ g.log[0] }}</div>
             @for (line of g.log.slice(1); track $index) { <div class="log">{{ line }}</div> }
             <div class="yr">{{ g.card.year }}</div>
-            <div class="t">{{ g.card.title }}</div>
-            <div class="a">{{ g.card.artist }}</div>
+            @if (g.namesShown) {
+              <div class="t">{{ g.card.title }}</div>
+              <div class="a">{{ g.card.artist }}</div>
+            }
           </div>
         }
       </section>
@@ -136,8 +138,12 @@
             @if (i < p.tl.length) {
               <div class="sq" [class.new]="p.tl[i].id === g.placedId" [style.background]="color(p.tl[i].year)">
                 <span class="y">{{ p.tl[i].year }}</span>
-                <span class="t">{{ p.tl[i].title }}</span>
-                <span class="a">{{ p.tl[i].artist }}</span>
+                @if (hideName(p.tl[i])) {
+                  <span class="t">?</span>
+                } @else {
+                  <span class="t">{{ p.tl[i].title }}</span>
+                  <span class="a">{{ p.tl[i].artist }}</span>
+                }
               </div>
             }
           }
@@ -151,10 +157,12 @@
         <div class="names">
           <b>Nome e artista</b>
           @for (line of g.nameLog; track $index) { <div class="log">{{ line }}</div> }
-          @if (!g.nameDone) {
+          @if (!g.namesShown) {
+            <button class="wide" (click)="showNames()">Revelar nome e artista</button>
+          } @else if (!g.nameDone) {
             <span class="small">Quem acertou nome e artista?</span>
-            <div class="row">
-              <button class="pick" [class.on]="nameWinner() === g.cur" (click)="pickNameWinner(g.cur)">{{ p.name }}</button>
+            <div class="picks">
+              <button class="pick" [class.on]="nameWinner() === g.cur" (click)="pickNameWinner(g.cur)">{{ p.name }} <span>· da vez</span></button>
               @for (c of nameBettors(); track c.i) {
                 <button class="pick" [class.on]="nameWinner() === c.i" (click)="pickNameWinner(c.i)">{{ c.q.name }}</button>
               }
@@ -162,7 +170,7 @@
             </div>
             @if (nameBettors().length) {
               <span class="small">Alguém apostou 1 ficha e errou? (perde a ficha)</span>
-              <div class="row">
+              <div class="picks">
                 @for (c of nameBettors(); track c.i) {
                   @if (nameWinner() !== c.i) {
                     <button class="pick miss" [class.on]="nameMissed().includes(c.i)" (click)="toggleNameMiss(c.i)">{{ c.q.name }}</button>
@@ -170,7 +178,7 @@
                 }
               </div>
             }
-            <div class="row"><button class="sm" (click)="applyNames()" [disabled]="nameWinner() === null">Aplicar</button></div>
+            <button class="wide" (click)="applyNames()" [disabled]="nameWinner() === null">Aplicar</button>
           }
         </div>
       }
@@ -195,11 +203,44 @@
       <div class="board">
         @for (q of g.players; track $index; let i = $index) {
           <div class="r" [class.me]="i === g.cur">
-            <span>{{ q.name }}</span><span>{{ q.tl.length }}/{{ goal() }} · 🎟 {{ q.tokens }}</span>
+            <span class="nm">{{ q.name }}</span><span>{{ q.tl.length }}/{{ goal() }} · 🎟 {{ q.tokens }}</span>
+            <button class="ghost buy" (click)="buy(i)" [disabled]="!canBuy(i)"
+              [attr.aria-label]="'Comprar carta para ' + q.name + ' por ' + buyCost + ' fichas'">+1 carta · 🎟 {{ buyCost }}</button>
           </div>
         }
       </div>
+      <p class="small">Qualquer um pode trocar {{ buyCost }} fichas por uma carta extra a qualquer momento: ela entra direto na posição certa.</p>
       <div class="row" style="margin-top:18px"><button class="ghost" (click)="quit()">Encerrar partida</button></div>
+    }
+
+    @if (notice(); as n) {
+      <div class="overlay" role="dialog" aria-modal="true">
+        <div class="modal">
+          @if (n.kind === 'confirm') {
+            <div class="small">Atenção, {{ n.who }}</div>
+            <h2>Vai ficar sem fichas!</h2>
+            <p>Para {{ n.action }} você gasta {{ n.cost }} {{ n.cost === 1 ? 'ficha' : 'fichas' }} e fica com 0.</p>
+            <div class="row center">
+              <button class="ghost" (click)="notice.set(null)">Cancelar</button>
+              <button (click)="confirmSpend()">Gastar mesmo assim</button>
+            </div>
+          } @else if (n.kind === 'skip' && n.card) {
+            <div class="small">Música pulada · só por curiosidade</div>
+            <h2>{{ n.card.title }}</h2>
+            <p class="a">{{ n.card.artist }}</p>
+            <div class="row center"><button (click)="closeNotice()">Próxima música →</button></div>
+          } @else if (n.kind === 'bought' && n.card) {
+            <div class="small">{{ n.who }} comprou uma carta</div>
+            <div class="sq bought" [style.background]="color(n.card.year)">
+              <span class="y">{{ n.card.year }}</span>
+              <span class="t">{{ n.card.title }}</span>
+              <span class="a">{{ n.card.artist }}</span>
+            </div>
+            <p>Já entrou na posição certa da linha do tempo.</p>
+            <div class="row center"><button (click)="closeNotice()">OK</button></div>
+          }
+        </div>
+      </div>
     }
 
     @if (g.winner) {

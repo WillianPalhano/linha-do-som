@@ -25,8 +25,26 @@ interface Game {
   nameTried: number[];
   namePending: number | null;
   nameLog: string[];
+  /** Depois de revelar o ano, nome e artista ficam escondidos até alguém tocar em "Revelar nome e artista". */
+  namesShown: boolean;
   winner: string | null;
 }
+
+/** Janelas sobre o jogo: música pulada, carta comprada ou aviso de que a pessoa vai ficar sem ficha. */
+interface Notice {
+  kind: 'skip' | 'bought' | 'confirm';
+  who: string;
+  card?: Song;
+  /** confirm: quantas fichas a ação custa, o que ela faz e o que rodar se a pessoa seguir em frente. */
+  cost?: number;
+  action?: string;
+  run?: () => void;
+  /** bought: índice de quem comprou, para conferir se completou a linha. */
+  buyer?: number;
+}
+
+/** Custo de comprar uma carta extra, que entra direto na posição certa. */
+export const BUY_COST = 3;
 
 const COLORS = ['#ff4f9a', '#2fd6c3', '#ffd23f', '#ff9f43', '#a78bfa'];
 const LIB = 'lds.library';          // formato antigo (uma playlist só), migrado na primeira abertura
@@ -333,8 +351,10 @@ export class AppComponent {
     this.game.set({
       players: players.map((name) => ({ name, tl: [deck.pop()!], tokens: Math.max(0, this.startTokens()) })),
       deck, cur: 0, card: null, phase: 'guess', picks: [], picker: 0, sel: null, ok: false,
-      winnerOfCard: null, log: [], placedId: null, nameDone: false, nameTried: [], namePending: null, nameLog: [], winner: null,
+      winnerOfCard: null, log: [], placedId: null, nameDone: false, nameTried: [], namePending: null, nameLog: [],
+      namesShown: false, winner: null,
     });
+    this.notice.set(null);
     void this.keepAwake();
     this.draw();
     window.scrollTo({ top: 0 });
@@ -347,7 +367,7 @@ export class AppComponent {
     g.card = g.deck.pop()!;
     g.phase = 'guess'; g.picks = []; g.picker = g.cur; g.sel = null;
     g.ok = false; g.winnerOfCard = null; g.log = []; g.placedId = null;
-    g.nameDone = false; g.nameTried = []; g.namePending = null; g.nameLog = [];
+    g.nameDone = false; g.nameTried = []; g.namePending = null; g.nameLog = []; g.namesShown = false;
     this.nameWinner.set(null); this.nameMissed.set([]);
     this.playMsg.set('');
     this.touch();
@@ -386,7 +406,7 @@ export class AppComponent {
   startChallenge(i: number): void {
     const g = this.game();
     if (!g || g.phase !== 'challenge') return;
-    g.picker = i; g.sel = null; this.touch();
+    this.askSpend(i, 1, 'contestar', () => { g.picker = i; g.sel = null; this.touch(); });
   }
   cancelChallenge(): void { const g = this.game(); if (g) { g.picker = null; g.sel = null; this.touch(); } }
 
@@ -436,7 +456,88 @@ export class AppComponent {
     this.scrollStrip(g.placedId ? 'new' : 'none');
   }
 
-  skip(): void { const p = this.current(); if (p && p.tokens > 0) { p.tokens--; this.draw(); } }
+  /** Pula a música (1 ficha) e mostra nome e artista dela por curiosidade; a próxima sai ao fechar. */
+  skip(): void {
+    const g = this.game();
+    const p = this.current();
+    if (!g || !p || !g.card || p.tokens < 1 || g.phase !== 'guess') return;
+    const card = g.card;
+    this.askSpend(g.cur, 1, 'pular a música', () => {
+      p.tokens--;
+      this.touch();
+      this.notice.set({ kind: 'skip', who: p.name, card });
+    });
+  }
+
+  // ---------- fichas: avisos e carta extra ----------
+  notice = signal<Notice | null>(null);
+  readonly buyCost = BUY_COST;
+
+  /** Roda a ação direto, ou avisa antes se ela deixar o jogador sem nenhuma ficha. */
+  private askSpend(i: number, cost: number, action: string, run: () => void): void {
+    const q = this.game()?.players[i];
+    if (!q || q.tokens < cost) return;
+    if (q.tokens - cost > 0) { run(); return; }
+    this.notice.set({ kind: 'confirm', who: q.name, cost, action, run });
+  }
+
+  confirmSpend(): void {
+    const n = this.notice();
+    this.notice.set(null);
+    n?.run?.();
+  }
+
+  closeNotice(): void {
+    const n = this.notice();
+    const g = this.game();
+    this.notice.set(null);
+    if (!n || !g) return;
+    if (n.kind === 'skip') this.draw();
+    if (n.kind === 'bought' && n.buyer !== undefined && g.players[n.buyer].tl.length >= this.goal()) {
+      g.winner = g.players[n.buyer].name;
+      this.touch();
+    }
+  }
+
+  /**
+   * Qualquer um pode comprar a qualquer momento. A única trava é o jogador da vez depois de confirmar
+   * a posição (rodada de contestação): a carta nova mudaria os espaços já escolhidos.
+   */
+  canBuy(i: number): boolean {
+    const g = this.game();
+    const q = g?.players[i];
+    if (!g || !q || g.winner || this.drag() || this.notice()) return false;
+    if (q.tokens < BUY_COST || !g.deck.length) return false;
+    return !(i === g.cur && g.phase === 'challenge');
+  }
+
+  buy(i: number): void {
+    const g = this.game();
+    if (!g || !this.canBuy(i)) return;
+    this.askSpend(i, BUY_COST, 'comprar uma carta', () => {
+      const q = g.players[i];
+      const c = g.deck.pop();
+      if (!c) return;
+      q.tokens -= BUY_COST;
+      const at = q.tl.findIndex((s) => s.year > c.year);
+      q.tl.splice(at < 0 ? q.tl.length : at, 0, c);
+      if (i === g.cur) {
+        if (g.phase === 'guess') g.sel = null; // os espaços mudaram de lugar
+        g.placedId = c.id;
+      }
+      this.touch();
+      if (i === g.cur) this.scrollStrip('new');
+      this.notice.set({ kind: 'bought', who: q.name, card: c, buyer: i });
+    });
+  }
+
+  /** A carta da rodada já na linha do tempo, com nome e artista ainda escondidos? */
+  hideName(s: Song): boolean {
+    const g = this.game();
+    return !!g && g.phase === 'reveal' && !g.namesShown && g.card?.id === s.id;
+  }
+
+  showNames(): void { const g = this.game(); if (g) { g.namesShown = true; this.touch(); } }
   // ---------- nome e artista ----------
   /**
    * Quem acertou nome e artista: o jogador da vez ganha +1 de graça.
@@ -503,6 +604,7 @@ export class AppComponent {
   quit(): void {
     if (this.audioMode() === 'connect' && this.playing()) void this.pausePlayback();
     void this.releaseAwake();
+    this.notice.set(null);
     this.game.set(null);
   }
 
