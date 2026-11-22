@@ -110,7 +110,17 @@ button:disabled{opacity:.4;cursor:not-allowed}
 button.chip{min-height:0;border:0;font:500 13px Rubik,sans-serif;cursor:pointer}
 .names{display:grid;gap:8px;background:var(--bg2);border-radius:18px;padding:14px;margin:12px 0}
 .names>b{font-size:17px}
-.pick{min-height:40px;padding:6px 14px;font-size:14px;background:var(--bg);color:var(--ink);border:2px solid #ffffff30}
+.picks{display:flex;flex-direction:column;gap:8px}
+.pick{width:100%;min-height:56px;padding:10px 16px;font-size:18px;border-radius:16px;background:var(--bg);color:var(--ink);border:2px solid #ffffff30}
+.pick span{font-size:14px;font-weight:500;opacity:.75}
+button.wide{width:100%;min-height:52px}
+.board .r{align-items:center;flex-wrap:wrap}
+.board .r .nm{flex:1;font-weight:500}
+button.buy{min-height:34px;padding:4px 12px;font-size:13px}
+.modal h2{margin:6px 0 4px;font-size:24px;line-height:1.2}
+.modal p{margin:8px 0 18px}
+.modal p.a{color:var(--mute);font-size:17px}
+.sq.bought{margin:14px auto 4px;--s:150px}
 .pick.on{background:var(--ok);color:#1c0a2b;border-color:var(--ok)}
 .pick.miss.on{background:var(--bad);border-color:var(--bad)}
 .btn-link{display:inline-flex;align-items:center;min-height:40px;padding:6px 16px;border-radius:999px;background:var(--yel);color:#1c0a2b;font-weight:700;text-decoration:none}

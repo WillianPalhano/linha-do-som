@@ -31,7 +31,10 @@ Feito em Angular 20 (standalone, signals, sem zone.js). Não tem backend: o logi
 - Cada jogador começa com uma carta aberta.
 - Na sua vez, dê o play na música (o nome fica escondido) e escolha o espaço da sua linha do tempo onde ela entra.
 - Se acertar, o cartão fica com você. Se errar, vai para o descarte.
-- Se acertar o artista e o nome da música, ganha +1 ficha (a turma confere). Uma ficha serve para pular uma música.
+- Se acertar o artista e o nome da música, ganha +1 ficha (a turma confere). Uma ficha serve para pular uma música (o nome e o artista dela aparecem, só por curiosidade).
+- Ao revelar, aparece só o ano. Nome e artista têm um botão separado.
+- A qualquer momento, qualquer jogador pode trocar 3 fichas por uma carta extra, que entra direto na posição certa da linha do tempo dele.
+- Antes de qualquer gasto que deixe o jogador com 0 fichas, o app pede confirmação.
 - Ganha quem chegar primeiro ao número de cartas combinado.
 
 ## Limitações conhecidas
